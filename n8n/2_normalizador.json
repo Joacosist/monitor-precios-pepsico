@@ -1,0 +1,199 @@
+{
+  "name": "2 · Normalizador de productos con IA (todos los días 8:31)",
+  "nodes": [
+    {
+      "id": "fcabd94f-1ba4-4bca-a3c3-10d39e9df6bd",
+      "name": "Nota 0162",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -320
+      ],
+      "parameters": {
+        "content": "## 2 · Normalizador (Claude Haiku)\nToma los productos nuevos y les asigna nombre limpio, variedad, segmento y gramaje, para que el mismo producto se compare igual en todas las cadenas.\n\n**Credenciales:** Supabase Postgres en los nodos de base, y **Header Auth** (nombre `x-api-key`, valor = tu API key de Anthropic) en \"Claude\".",
+        "width": 460,
+        "height": 240
+      }
+    },
+    {
+      "id": "396e90d6-04b8-460e-92da-a9da3c3aaf95",
+      "name": "Todos los días 8:31",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "31 8 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "386e77bf-b28d-43db-ac59-59eef8013cea",
+      "name": "Productos sin normalizar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select ean, nombre, marca from productos where not normalizado order by creado_at limit 150;",
+        "options": {}
+      }
+    },
+    {
+      "id": "b01abb60-c554-43e8-ba04-3d8606809b82",
+      "name": "Armar pedido a Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Armar pedido a Claude\" — productos todavía sin normalizar → un pedido a la API.\nconst prods = $input.all().map((i) => i.json).filter((p) => p && p.ean);\nif (!prods.length) return [];\n\nconst sistema = `Sos un analista de datos maestros de PepsiCo Argentina (snacks).\nRecibís productos con su EAN y el nombre tal como aparece en un supermercado online.\nPara cada uno devolvé:\n- nombre_corto: nombre limpio y consistente, formato \"<Marca> <Variedad> <gramaje>g\" (ej. \"Lay's Clásicas 85g\", \"Doritos Queso 129g\", \"Pehuamar Maní Salado 120g\").\n- marca: una de Lay's, Doritos, 3D, Cheetos, Tostitos, Twistos, Pehuamar (u \"Otra\" si no corresponde).\n- variedad: sabor o línea (ej. \"Clásicas\", \"Jamón Serrano\", \"Queso\", \"Dinamita Flamin' Hot\", \"Rústicas Sal Marina\").\n- segmento: uno de \"Papas fritas\", \"Nachos\", \"Snacks de maíz\", \"Palitos y conitos\", \"Maní\", \"Galletitas/Tostadas\", \"Otros\".\n- gramaje_g: número en gramos (null si no se puede saber).\nNo inventes datos que no surjan del nombre. Respondé SOLO un array JSON, sin texto antes ni después.`;\n\nconst lista = prods.map((p) => `${p.ean} | ${p.marca || ''} | ${p.nombre || ''}`).join('\\n');\n\nreturn [{ json: {\n  cantidad: prods.length,\n  body: {\n    model: 'claude-haiku-5-5',\n    max_tokens: 8000,\n    system: sistema,\n    messages: [{ role: 'user', content: `Productos (EAN | marca | nombre):\\n${lista}\\n\\nDevolvé el array JSON con objetos {ean, nombre_corto, marca, variedad, segmento, gramaje_g}.` }],\n  },\n} }];\n"
+      }
+    },
+    {
+      "id": "96ab6e6f-c37c-445a-9c35-5bd7aed4d700",
+      "name": "Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "198f9d9f-75a9-4989-b522-e91b1d7d3c46",
+      "name": "Leer respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Leer respuesta de Claude\" — extrae el JSON y lo valida antes de guardarlo.\nconst res = $input.first().json;\nconst texto = (res.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');\nconst ini = texto.indexOf('[');\nconst fin = texto.lastIndexOf(']');\nif (ini < 0 || fin < ini) throw new Error('Claude no devolvió un array JSON: ' + texto.slice(0, 300));\n\nlet arr;\ntry { arr = JSON.parse(texto.slice(ini, fin + 1)); } catch (e) { throw new Error('JSON inválido de Claude: ' + e.message); }\n\nconst MARCAS = [\"Lay's\", 'Doritos', '3D', 'Cheetos', 'Tostitos', 'Twistos', 'Pehuamar', 'Otra'];\nconst limpio = (s, max = 120) => (typeof s === 'string' ? s.trim().slice(0, max) : null);\nconst filas = (Array.isArray(arr) ? arr : [])\n  .filter((x) => x && x.ean)\n  .map((x) => ({\n    ean: String(x.ean).trim(),\n    nombre_corto: limpio(x.nombre_corto),\n    marca: MARCAS.includes(x.marca) ? x.marca : null,\n    variedad: limpio(x.variedad, 60),\n    segmento: limpio(x.segmento, 40),\n    gramaje_g: Number.isFinite(Number(x.gramaje_g)) && Number(x.gramaje_g) > 0 ? Number(x.gramaje_g) : null,\n  }));\n\nreturn [{ json: { filas: JSON.stringify(filas), cantidad: filas.length } }];\n"
+      }
+    },
+    {
+      "id": "2a2dd874-044c-4d14-8797-ce2f1f08cb76",
+      "name": "Guardar normalización",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select actualizar_productos($1::jsonb) as actualizados;",
+        "options": {
+          "queryReplacement": "={{ [ $json.filas ] }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Todos los días 8:31": {
+      "main": [
+        [
+          {
+            "node": "Productos sin normalizar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Productos sin normalizar": {
+      "main": [
+        [
+          {
+            "node": "Armar pedido a Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar pedido a Claude": {
+      "main": [
+        [
+          {
+            "node": "Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "main": [
+        [
+          {
+            "node": "Leer respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer respuesta": {
+      "main": [
+        [
+          {
+            "node": "Guardar normalización",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

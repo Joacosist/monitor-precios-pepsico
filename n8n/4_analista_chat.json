@@ -1,0 +1,175 @@
+{
+  "name": "4 · Analista de precios (chat del dashboard)",
+  "nodes": [
+    {
+      "id": "574afd40-6d56-432f-a84f-34dbeac9f8f6",
+      "name": "Nota 8543",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -360
+      ],
+      "parameters": {
+        "content": "## 4 · Analista (chat)\nEl dashboard le manda preguntas a este webhook y el agente responde consultando Supabase.\n\n**Credenciales:**\n- \"Claude Sonnet\": Anthropic API.\n- \"consultar_base\": Postgres con el usuario **analista_ro** (solo lectura, ver sql/02_rol_analista.sql).\n\nActivá el workflow y copiá la **Production URL** del Webhook en el dashboard (campo WEBHOOK_ANALISTA).",
+        "width": 480,
+        "height": 280
+      }
+    },
+    {
+      "id": "23ad6b12-1851-40c5-ace0-1b2a987936b0",
+      "name": "Pregunta del dashboard",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "analista-precios",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "webhookId": "a6ca18da-a85c-4341-84e7-8b3be853e33f"
+    },
+    {
+      "id": "6660cb08-6faf-4fd0-ab19-a0408aeca96b",
+      "name": "Analista",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ ($json.body.historial ? 'Conversación previa:\\n' + $json.body.historial + '\\n\\n' : '') + 'Pregunta: ' + $json.body.pregunta }}",
+        "options": {
+          "systemMessage": "=Sos el Analista de Precios de snacks PepsiCo Argentina. Respondés preguntas sobre precios en supermercados online usando la base de datos.\nHoy es {{ $now.setZone('America/Argentina/Buenos_Aires').toISODate() }}.\n\nTenés la herramienta \"consultar_base\" para ejecutar SQL (Postgres, SOLO SELECT). Usá estas vistas:\n- v_precios(fecha, retailer_id, retailer, ean, producto, marca, variedad, segmento, gramaje_g, precio, precio_lista, en_promo, promo_texto, disponible, precio_kg, url): un registro por producto, cadena y día.\n- v_precios_hoy: igual que v_precios pero sólo el último día, con precio_anterior y var_pct (vs. captura anterior).\n- v_indice_retailer(fecha, retailer, indice, skus_comparables): 100 = mediana del mercado; menor = más barato.\n- v_alertas(fecha, tipo, retailer, ean, nombre, marca, precio_anterior, precio_nuevo, variacion_pct, detalle); tipo ∈ suba, baja, promo_nueva, promo_fin, quiebre, reposicion, nuevo_sku.\n- v_tendencia(fecha, retailer, marca, skus, precio_kg_prom, pct_promo, sin_stock).\nMarcas: Lay's, Doritos, 3D, Cheetos, Tostitos, Twistos, Pehuamar. Cadenas: Carrefour, Jumbo, Disco, Vea, Día, ChangoMás, Coto.\n\nReglas:\n- Siempre consultá la base antes de responder con números. Nunca inventes precios.\n- Filtrá texto con ILIKE (ej. producto ILIKE '%doritos%queso%'). Poné LIMIT 200 como máximo.\n- Para comparar presentaciones distintas usá precio_kg.\n- Respondé en español rioplatense, breve y concreto, con montos en pesos ($ 4.200) y aclarando la fecha del dato.\n- Si la pregunta no tiene que ver con precios de snacks, decilo amablemente.",
+          "maxIterations": 8
+        }
+      }
+    },
+    {
+      "id": "5b1ce3a1-9393-48b9-8f8b-6f9d8317f8d8",
+      "name": "Claude Sonnet",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        200,
+        220
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-sonnet-5-5"
+        },
+        "options": {
+          "maxTokensToSample": 2000,
+          "temperature": 0.2
+        }
+      }
+    },
+    {
+      "id": "16093e79-917c-4123-a1ac-9a79ff375a01",
+      "name": "consultar_base",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.5,
+      "position": [
+        400,
+        220
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Ejecuta UNA consulta SQL de solo lectura (SELECT) sobre las vistas de precios y devuelve las filas.",
+        "operation": "executeQuery",
+        "query": "={{ $fromAI('consulta_sql', 'Una sola consulta SQL SELECT de solo lectura sobre las vistas descriptas, con LIMIT', 'string') }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "ffe8bd70-76d5-4dcb-8008-6f7e9d2d33a7",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { respuesta: $json.output } }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Pregunta del dashboard": {
+      "main": [
+        [
+          {
+            "node": "Analista",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analista": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analista",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_base": {
+      "ai_tool": [
+        [
+          {
+            "node": "Analista",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

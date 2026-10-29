@@ -1,0 +1,254 @@
+{
+  "name": "3 · Alertas y mail diario (todos los días 9:00)",
+  "nodes": [
+    {
+      "id": "048724d7-9330-4c29-a701-c5031ec7ae6e",
+      "name": "Nota eaa5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -340
+      ],
+      "parameters": {
+        "content": "## 3 · Alertas + mail de las 9:00\nCompara el día contra la captura anterior (subas, bajas, promos nuevas/terminadas, quiebres, SKUs nuevos), Claude escribe el resumen y se manda el mail.\n\n**Editá el nodo \"Configuración\"** (destinatario y link del dashboard).\n**Credenciales:** Supabase Postgres · Header Auth de Anthropic · Microsoft Outlook.\nSi IT no deja conectar Outlook, usá el nodo SMTP (desactivado) como alternativa.",
+        "width": 520,
+        "height": 260
+      }
+    },
+    {
+      "id": "faed1e19-d4d3-4150-83ed-3a6a7d1f5f21",
+      "name": "Todos los días 9:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6b805a07-8bea-484d-8ce4-79e558768bff",
+      "name": "Configuración",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Configuración\" — EDITÁ ESTOS VALORES.\nconst DESTINATARIO = 'tu.mail@pepsico.com';           // a quién le llega el resumen (podés poner varios separados por coma)\nconst LINK_DASHBOARD = '';                              // pegá acá el link del dashboard cuando lo publiques\nconst UMBRAL_VARIACION_PCT = 1;                         // cambios de precio menores a este % no se reportan\n\nconst fecha = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());\nreturn [{ json: { fecha, destinatario: DESTINATARIO, link_dashboard: LINK_DASHBOARD, umbral: UMBRAL_VARIACION_PCT } }];\n"
+      }
+    },
+    {
+      "id": "a04c4c4e-af28-4393-9574-b38062ea6844",
+      "name": "Resumen del día",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select resumen_diario($1::date, $2::numeric) as r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.fecha, $json.umbral ] }}"
+        }
+      }
+    },
+    {
+      "id": "700bf1bb-1948-4e10-92fe-9970e994e48f",
+      "name": "Pedido a Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Pedido a Claude\" — resume los cambios del día para que Claude escriba el análisis.\nlet r = $input.first().json.r;\nif (typeof r === 'string') r = JSON.parse(r);\nconst al = r.alertas || [];\nconst top = (tipo, n = 12) => al.filter((a) => a.tipo === tipo).slice(0, n)\n  .map((a) => `${a.retailer} · ${a.nombre} · ${a.precio_anterior ?? '-'} → ${a.precio_nuevo ?? '-'}${a.variacion_pct != null ? ` (${a.variacion_pct}%)` : ''}${a.detalle ? ` · ${a.detalle}` : ''}`)\n  .join('\\n') || '(ninguno)';\n\nconst datos = `Fecha: ${r.fecha} (comparado contra ${r.fecha_anterior || 'sin captura previa'})\nSKUs relevados: ${r.skus} · Registros: ${r.registros}\nCantidad de cambios: ${JSON.stringify(r.conteo)}\nPor cadena: ${JSON.stringify(r.por_retailer)}\nÍndice de precios (100 = mediana del mercado; menor = más barato): ${JSON.stringify(r.indice)}\n\nSUBAS:\n${top('suba')}\n\nBAJAS:\n${top('baja')}\n\nPROMOS NUEVAS:\n${top('promo_nueva')}\n\nPROMOS QUE TERMINARON:\n${top('promo_fin')}\n\nQUIEBRES / DESAPARECIDOS:\n${top('quiebre')}\n\nSKUs NUEVOS:\n${top('nuevo_sku')}`;\n\nconst sistema = `Sos analista de pricing y shopper marketing de PepsiCo Argentina (snacks: Lay's, Doritos, 3D, Cheetos, Tostitos, Twistos, Pehuamar) en el canal supermercados online.\nEscribí el resumen ejecutivo del día en español rioplatense, profesional y directo.\nReglas:\n- Entre 3 y 6 bullets. Cada bullet con cifras concretas tomadas de los datos (cadena, producto, % y precio).\n- Priorizá: movimientos de precio relevantes, cadenas que se desalinean del resto, promos de la competencia entre cadenas, quiebres de stock que afectan venta.\n- Si no hay captura anterior, decilo y describí la foto del día (cadena más barata/cara según el índice, % de SKUs en promo).\n- Si hay 0 registros, avisá que la recolección falló y no analices nada más.\n- NO inventes datos ni causas que no estén en la información.\n- Devolvé SOLO HTML: un <ul> con <li>. Podés usar <b>. Nada más.`;\n\nreturn [{ json: {\n  body: {\n    model: 'claude-sonnet-5-5',\n    max_tokens: 1200,\n    system: sistema,\n    messages: [{ role: 'user', content: datos }],\n  },\n} }];\n"
+      }
+    },
+    {
+      "id": "0f7006e4-eb29-47fe-9e7f-e81811c98a08",
+      "name": "Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ffb42756-7951-479e-b49c-ea9a3f5ec74d",
+      "name": "Armar mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Armar mail\" — HTML compatible con Outlook (tablas y estilos inline).\nconst cfg = $('Configuración').first().json;\nlet r = $('Resumen del día').first().json.r;\nif (typeof r === 'string') r = JSON.parse(r);\nconst ia = $input.first().json || {};\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst pesos = (n) => (n == null || n === '' ? '—' : '$' + Number(n).toLocaleString('es-AR', { maximumFractionDigits: 0 }));\nconst pct = (n) => (n == null ? '' : (n > 0 ? '+' : '') + Number(n).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%');\nconst fechaLarga = (f) => new Date(f + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });\n\n// Texto de Claude: sólo dejamos <ul>, <li>, <b>, <strong>\nlet analisis = (ia.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('').trim();\nanalisis = analisis.replace(/```html?|```/g, '').replace(/<(?!\\/?(ul|li|b|strong)\\b)[^>]*>/gi, '');\nif (!/<li/i.test(analisis)) analisis = analisis ? `<p>${esc(analisis)}</p>` : '<p style=\"color:#898781\">(El análisis automático no estuvo disponible hoy; abajo están todos los cambios.)</p>';\n\nconst al = r.alertas || [];\nconst c = r.conteo || {};\nconst MAX = 25;\n\nfunction tabla(titulo, color, filas, columnas) {\n  if (!filas.length) return '';\n  const extra = filas.length > MAX ? `<p style=\"margin:6px 0 0;font-size:12px;color:#898781\">…y ${filas.length - MAX} más (ver dashboard).</p>` : '';\n  return `\n  <h3 style=\"margin:28px 0 8px;font-size:15px;color:#0b0b0b;border-left:4px solid ${color};padding-left:8px\">${titulo} <span style=\"color:#898781;font-weight:normal\">(${filas.length})</span></h3>\n  <table cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border-collapse:collapse;font-size:13px\">\n    <tr>${columnas.map((col) => `<th align=\"${col.a || 'left'}\" style=\"padding:6px 8px;border-bottom:1px solid #c3c2b7;color:#52514e;font-weight:600\">${col.t}</th>`).join('')}</tr>\n    ${filas.slice(0, MAX).map((f) => `<tr>${columnas.map((col) => `<td align=\"${col.a || 'left'}\" style=\"padding:6px 8px;border-bottom:1px solid #e1e0d9\">${col.v(f)}</td>`).join('')}</tr>`).join('')}\n  </table>${extra}`;\n}\n\nconst colsPrecio = [\n  { t: 'Cadena', v: (a) => esc(a.retailer) },\n  { t: 'Producto', v: (a) => esc(a.nombre) },\n  { t: 'Antes', a: 'right', v: (a) => pesos(a.precio_anterior) },\n  { t: 'Hoy', a: 'right', v: (a) => `<b>${pesos(a.precio_nuevo)}</b>` },\n  { t: 'Var.', a: 'right', v: (a) => `<b style=\"color:${a.variacion_pct > 0 ? '#d03b3b' : '#006300'}\">${pct(a.variacion_pct)}</b>` },\n];\nconst colsPromo = [\n  { t: 'Cadena', v: (a) => esc(a.retailer) },\n  { t: 'Producto', v: (a) => esc(a.nombre) },\n  { t: 'Precio', a: 'right', v: (a) => pesos(a.precio_nuevo) },\n  { t: 'Promo', v: (a) => esc(a.detalle || '') },\n];\nconst colsSimple = [\n  { t: 'Cadena', v: (a) => esc(a.retailer) },\n  { t: 'Producto', v: (a) => esc(a.nombre) },\n  { t: 'Detalle', v: (a) => esc(a.detalle || '') },\n];\nconst de = (t) => al.filter((a) => a.tipo === t);\n\nconst kpi = (valor, etiqueta) => `<td align=\"center\" style=\"padding:12px 6px;background:#f9f9f7;border:1px solid #e1e0d9;border-radius:6px\">\n  <div style=\"font-size:22px;font-weight:700;color:#0b0b0b\">${valor}</div>\n  <div style=\"font-size:11px;color:#52514e;text-transform:uppercase;letter-spacing:.04em\">${etiqueta}</div></td>`;\n\nconst indice = (r.indice || []).map((x) => `<tr><td style=\"padding:4px 8px\">${esc(x.retailer)}</td>\n  <td align=\"right\" style=\"padding:4px 8px;font-weight:600;color:${x.indice <= 98 ? '#006300' : x.indice >= 102 ? '#d03b3b' : '#0b0b0b'}\">${Number(x.indice).toFixed(1)}</td>\n  <td align=\"right\" style=\"padding:4px 8px;color:#898781\">${x.skus_comparables} SKUs</td></tr>`).join('');\n\nconst sinDatos = !r.registros;\nconst total = al.length;\n\nconst html = `<!doctype html><html><body style=\"margin:0;background:#f4f4f2\">\n<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f4f4f2;padding:24px 0\"><tr><td align=\"center\">\n<table width=\"680\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff;border-radius:10px;padding:28px;font-family:Segoe UI,Arial,sans-serif;color:#0b0b0b\">\n<tr><td>\n  <div style=\"font-size:12px;color:#52514e;text-transform:uppercase;letter-spacing:.06em\">Monitor de precios · Snacks PepsiCo</div>\n  <h1 style=\"margin:4px 0 2px;font-size:22px\">Cambios del ${esc(fechaLarga(r.fecha))}</h1>\n  <div style=\"font-size:13px;color:#52514e\">${r.fecha_anterior ? `Comparado contra la captura del ${esc(r.fecha_anterior)}` : 'Primera captura: todavía no hay día anterior para comparar.'}</div>\n\n  ${sinDatos ? `<p style=\"margin:18px 0;padding:12px;background:#fdecec;border-left:4px solid #d03b3b\">⚠ Hoy no se registraron precios. Revisá la última ejecución del workflow <b>1 · Recolector</b> en n8n.</p>` : `\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"6\" style=\"margin:18px 0 4px\"><tr>\n    ${kpi(r.skus, 'SKUs relevados')}\n    ${kpi((c.suba || 0) + (c.baja || 0), 'Cambios de precio')}\n    ${kpi(c.promo_nueva || 0, 'Promos nuevas')}\n    ${kpi(c.quiebre || 0, 'Quiebres')}\n  </tr></table>`}\n\n  <h3 style=\"margin:24px 0 6px;font-size:15px\">Lo importante</h3>\n  <div style=\"font-size:14px;line-height:1.5\">${analisis}</div>\n\n  ${!sinDatos && total === 0 && r.fecha_anterior ? '<p style=\"color:#52514e\">Sin cambios relevantes respecto del día anterior.</p>' : ''}\n  ${tabla('Subas de precio', '#d03b3b', de('suba'), colsPrecio)}\n  ${tabla('Bajas de precio', '#0ca30c', de('baja'), colsPrecio)}\n  ${tabla('Promos nuevas', '#2a78d6', de('promo_nueva'), colsPromo)}\n  ${tabla('Quiebres de stock / productos que desaparecieron', '#fab219', de('quiebre'), colsSimple)}\n  ${tabla('Reposiciones', '#1baf7a', de('reposicion'), colsSimple)}\n  ${tabla('Promos que terminaron', '#898781', de('promo_fin'), colsSimple)}\n  ${tabla('SKUs nuevos en góndola online', '#6250d6', de('nuevo_sku'), colsPromo)}\n\n  ${indice ? `<h3 style=\"margin:28px 0 8px;font-size:15px\">Índice de precios por cadena</h3>\n  <div style=\"font-size:12px;color:#52514e;margin-bottom:6px\">100 = mediana del mercado para el mismo producto. Menos de 100 = más barato que el resto.</div>\n  <table cellpadding=\"0\" cellspacing=\"0\" style=\"font-size:13px\">${indice}</table>` : ''}\n\n  ${cfg.link_dashboard ? `<p style=\"margin:28px 0 0\"><a href=\"${esc(cfg.link_dashboard)}\" style=\"background:#2a78d6;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600\">Abrir dashboard</a></p>` : ''}\n  <p style=\"margin:28px 0 0;font-size:11px;color:#898781\">Precios públicos de las tiendas online de Carrefour, Jumbo, Disco, Vea, Día, ChangoMás y Coto. Generado automáticamente por n8n + Claude.</p>\n</td></tr></table></td></tr></table></body></html>`;\n\nconst asunto = sinDatos\n  ? `⚠ Monitor de precios ${r.fecha}: sin datos hoy`\n  : `Precios snacks ${r.fecha}: ${(c.suba || 0)} subas · ${(c.baja || 0)} bajas · ${(c.promo_nueva || 0)} promos · ${(c.quiebre || 0)} quiebres`;\n\nreturn [{ json: { destinatario: cfg.destinatario, asunto, html } }];\n"
+      }
+    },
+    {
+      "id": "975b22bd-a2fe-473b-9d8e-496d31dfaf63",
+      "name": "Enviar por Outlook",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -80
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "toRecipients": "={{ $json.destinatario }}",
+        "subject": "={{ $json.asunto }}",
+        "bodyContent": "={{ $json.html }}",
+        "additionalFields": {
+          "bodyContentType": "html"
+        }
+      }
+    },
+    {
+      "id": "39f2f7d5-a514-48f7-a335-89b6a8bc8dda",
+      "name": "Enviar por SMTP (alternativa)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "fromEmail": "tu.cuenta@gmail.com",
+        "toEmail": "={{ $json.destinatario }}",
+        "subject": "={{ $json.asunto }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "disabled": true,
+      "notes": "Alternativa si IT no deja conectar Outlook: activá este nodo, desactivá el de Outlook y cargá una credencial SMTP (ej. Gmail con contraseña de aplicación)."
+    }
+  ],
+  "connections": {
+    "Todos los días 9:00": {
+      "main": [
+        [
+          {
+            "node": "Configuración",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuración": {
+      "main": [
+        [
+          {
+            "node": "Resumen del día",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resumen del día": {
+      "main": [
+        [
+          {
+            "node": "Pedido a Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedido a Claude": {
+      "main": [
+        [
+          {
+            "node": "Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "main": [
+        [
+          {
+            "node": "Armar mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar mail": {
+      "main": [
+        [
+          {
+            "node": "Enviar por Outlook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enviar por SMTP (alternativa)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

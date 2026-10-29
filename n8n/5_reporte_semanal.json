@@ -1,0 +1,346 @@
+{
+  "name": "5 · Reporte semanal con Excel (lunes 9:17)",
+  "nodes": [
+    {
+      "id": "a3286ec7-4706-49d7-9d31-b0cdee93bea3",
+      "name": "Nota 060b",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -320
+      ],
+      "parameters": {
+        "content": "## 5 · Reporte semanal\nLos lunes manda un mail con el análisis de la semana y un **Excel adjunto** con todos los precios y su variación contra hace 7 días.\n\n**Editá \"Configuración\"** igual que en el workflow 3.",
+        "width": 440,
+        "height": 220
+      }
+    },
+    {
+      "id": "e703551a-210d-4d43-b806-9ac1a49f664f",
+      "name": "Lunes 9:17",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "17 9 * * 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "0bd87a05-6634-4fdd-82ea-eb382f38df6e",
+      "name": "Configuración",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Configuración\" — EDITÁ ESTOS VALORES.\nconst DESTINATARIO = 'tu.mail@pepsico.com';           // a quién le llega el resumen (podés poner varios separados por coma)\nconst LINK_DASHBOARD = '';                              // pegá acá el link del dashboard cuando lo publiques\nconst UMBRAL_VARIACION_PCT = 1;                         // cambios de precio menores a este % no se reportan\n\nconst fecha = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());\nreturn [{ json: { fecha, destinatario: DESTINATARIO, link_dashboard: LINK_DASHBOARD, umbral: UMBRAL_VARIACION_PCT } }];\n"
+      }
+    },
+    {
+      "id": "a56ca05a-7dba-4c9d-9958-36f4ff8fb23c",
+      "name": "Comparativo semanal",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from comparativo_semanal($1::date);",
+        "options": {
+          "queryReplacement": "={{ [ $json.fecha ] }}"
+        }
+      }
+    },
+    {
+      "id": "f163e799-496c-4fcc-b8d9-19106c3fb9b0",
+      "name": "Filas para Excel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        -140
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Filas para Excel\" — columnas con nombres legibles.\nreturn $input.all().map(({ json: f }) => ({ json: {\n  'Marca': f.marca,\n  'Producto': f.producto,\n  'EAN': f.ean,\n  'Gramaje (g)': f.gramaje_g != null ? Number(f.gramaje_g) : null,\n  'Cadena': f.retailer,\n  'Precio hoy': f.precio_hoy != null ? Number(f.precio_hoy) : null,\n  'Precio hace 7 días': f.precio_hace_7d != null ? Number(f.precio_hace_7d) : null,\n  'Variación 7d (%)': f.var_7d_pct != null ? Number(f.var_7d_pct) : null,\n  'Precio por kg': f.precio_kg != null ? Number(f.precio_kg) : null,\n  'En promo': f.en_promo ? 'Sí' : 'No',\n  'Promo': f.promo_texto || '',\n  'Disponible': f.disponible ? 'Sí' : 'No',\n  'Link': f.url || '',\n} }));\n"
+      }
+    },
+    {
+      "id": "e2a3013c-2582-40e4-ae08-2fd5085da353",
+      "name": "Crear Excel",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        -140
+      ],
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "=precios_snacks_{{ $('Configuración').first().json.fecha }}.xlsx",
+          "sheetName": "Precios"
+        }
+      }
+    },
+    {
+      "id": "68fd5dfc-bd9f-427b-8fc6-ea62b5d03c01",
+      "name": "Resumen semanal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Resumen semanal\" — agrega por marca y por cadena y arma el pedido a Claude.\nconst filas = $input.all().map((i) => i.json);\nconst prom = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);\nconst r1 = (n) => (n == null ? null : Math.round(n * 10) / 10);\n\nfunction agrupar(clave) {\n  const g = {};\n  for (const f of filas) {\n    const k = f[clave] || 'Sin dato';\n    g[k] = g[k] || { skus: 0, vars: [], promo: 0, sinStock: 0 };\n    g[k].skus++;\n    if (f.var_7d_pct != null) g[k].vars.push(Number(f.var_7d_pct));\n    if (f.en_promo) g[k].promo++;\n    if (!f.disponible) g[k].sinStock++;\n  }\n  return Object.entries(g).map(([k, v]) => ({\n    [clave]: k, skus: v.skus, var_prom_7d: r1(prom(v.vars)),\n    pct_promo: r1((100 * v.promo) / v.skus), sin_stock: v.sinStock,\n  }));\n}\n\nconst conVar = filas.filter((f) => f.var_7d_pct != null).sort((a, b) => b.var_7d_pct - a.var_7d_pct);\nconst fmt = (f) => `${f.retailer} · ${f.producto} · $${f.precio_hace_7d} → $${f.precio_hoy} (${f.var_7d_pct}%)`;\n\nconst datos = `Semana cerrada al ${$('Configuración').first().json.fecha}.\nPor marca: ${JSON.stringify(agrupar('marca'))}\nPor cadena: ${JSON.stringify(agrupar('retailer'))}\nMayores subas 7d:\\n${conVar.slice(0, 10).map(fmt).join('\\n') || '(sin datos)'}\nMayores bajas 7d:\\n${conVar.slice(-10).reverse().filter((f) => f.var_7d_pct < 0).map(fmt).join('\\n') || '(sin datos)'}`;\n\nreturn [{ json: {\n  total: filas.length,\n  body: {\n    model: 'claude-sonnet-5-5',\n    max_tokens: 1500,\n    system: `Sos analista de pricing de PepsiCo Argentina (snacks) en supermercados online.\nEscribí el resumen semanal en español rioplatense: 4 a 7 bullets con cifras concretas (marca, cadena, %), cerrando con 1 o 2 puntos a seguir la semana próxima.\nSi \"var_prom_7d\" es null es porque todavía no hay una semana de historia: decilo y describí la foto actual.\nNo inventes datos ni causas. Devolvé SOLO HTML: un <ul> con <li>, podés usar <b>.`,\n    messages: [{ role: 'user', content: datos }],\n  },\n} }];\n"
+      }
+    },
+    {
+      "id": "75823060-46c9-4bd1-b25a-6b2c3aa3385f",
+      "name": "Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "d4a40f62-3363-4b9b-ac8b-c2eaa31b35ef",
+      "name": "Armar mail semanal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Armar mail semanal\"\nconst cfg = $('Configuración').first().json;\nconst total = $('Resumen semanal').first().json.total;\nconst ia = $input.first().json || {};\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nlet analisis = (ia.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('').trim();\nanalisis = analisis.replace(/```html?|```/g, '').replace(/<(?!\\/?(ul|li|b|strong)\\b)[^>]*>/gi, '');\nif (!/<li/i.test(analisis)) analisis = analisis ? `<p>${esc(analisis)}</p>` : '<p>(El análisis automático no estuvo disponible; el detalle completo está en el Excel adjunto.)</p>';\n\nconst html = `<!doctype html><html><body style=\"margin:0;background:#f4f4f2\">\n<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f4f4f2;padding:24px 0\"><tr><td align=\"center\">\n<table width=\"680\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#fff;border-radius:10px;padding:28px;font-family:Segoe UI,Arial,sans-serif;color:#0b0b0b\"><tr><td>\n  <div style=\"font-size:12px;color:#52514e;text-transform:uppercase;letter-spacing:.06em\">Monitor de precios · Snacks PepsiCo</div>\n  <h1 style=\"margin:4px 0 12px;font-size:22px\">Resumen semanal al ${esc(cfg.fecha)}</h1>\n  <div style=\"font-size:14px;line-height:1.5\">${analisis}</div>\n  <p style=\"font-size:13px;color:#52514e;margin-top:20px\">📎 Adjunto: Excel con los ${total} precios relevados (producto × cadena) y su variación contra hace 7 días.</p>\n  ${cfg.link_dashboard ? `<p><a href=\"${esc(cfg.link_dashboard)}\" style=\"background:#2a78d6;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600\">Abrir dashboard</a></p>` : ''}\n</td></tr></table></td></tr></table></body></html>`;\n\nreturn [{ json: { destinatario: cfg.destinatario, asunto: `Resumen semanal de precios snacks — ${cfg.fecha}`, html } }];\n"
+      }
+    },
+    {
+      "id": "9b16d562-1cae-46e6-8aa6-b52d065b560d",
+      "name": "Unir mail + Excel",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1340,
+        0
+      ],
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      }
+    },
+    {
+      "id": "181cec5b-5c2f-47d0-bece-96749fbea126",
+      "name": "Enviar por Outlook",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -80
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "toRecipients": "={{ $json.destinatario }}",
+        "subject": "={{ $json.asunto }}",
+        "bodyContent": "={{ $json.html }}",
+        "additionalFields": {
+          "bodyContentType": "html",
+          "attachments": {
+            "attachments": [
+              {
+                "binaryPropertyName": "data"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "12334321-35df-4c8b-b4d0-029a9aa5f968",
+      "name": "Enviar por SMTP (alternativa)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1560,
+        100
+      ],
+      "parameters": {
+        "fromEmail": "tu.cuenta@gmail.com",
+        "toEmail": "={{ $json.destinatario }}",
+        "subject": "={{ $json.asunto }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {
+          "attachments": "data"
+        }
+      },
+      "disabled": true,
+      "notes": "Alternativa si IT no deja conectar Outlook: activá este nodo, desactivá el de Outlook y cargá una credencial SMTP (ej. Gmail con contraseña de aplicación)."
+    }
+  ],
+  "connections": {
+    "Lunes 9:17": {
+      "main": [
+        [
+          {
+            "node": "Configuración",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuración": {
+      "main": [
+        [
+          {
+            "node": "Comparativo semanal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comparativo semanal": {
+      "main": [
+        [
+          {
+            "node": "Filas para Excel",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Resumen semanal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filas para Excel": {
+      "main": [
+        [
+          {
+            "node": "Crear Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Excel": {
+      "main": [
+        [
+          {
+            "node": "Unir mail + Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resumen semanal": {
+      "main": [
+        [
+          {
+            "node": "Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "main": [
+        [
+          {
+            "node": "Armar mail semanal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar mail semanal": {
+      "main": [
+        [
+          {
+            "node": "Unir mail + Excel",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Unir mail + Excel": {
+      "main": [
+        [
+          {
+            "node": "Enviar por Outlook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enviar por SMTP (alternativa)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

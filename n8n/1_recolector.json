@@ -1,0 +1,215 @@
+{
+  "name": "1 · Recolector de precios (todos los días 7:47)",
+  "nodes": [
+    {
+      "id": "7f903bf1-7571-49e0-84da-76dcd73de82f",
+      "name": "Nota 0ce0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -340
+      ],
+      "parameters": {
+        "content": "## 1 · Recolector de precios\nBusca Lay's, Doritos, 3D, Cheetos, Tostitos, Twistos y Pehuamar en Carrefour, Jumbo, Disco, Vea, Día, ChangoMás (API pública VTEX) y Coto Digital.\n\n**Antes de activarlo:** elegí la credencial **Supabase Postgres** en los nodos \"Config\" y \"Guardar en Supabase\".\n\nPara sumar/quitar cadenas o marcas no hace falta tocar n8n: editá las tablas `retailers` y `marcas` en Supabase.",
+        "width": 460,
+        "height": 260
+      }
+    },
+    {
+      "id": "c9369c50-690f-4178-b21c-51bda0ee3e44",
+      "name": "Todos los días 7:47",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "47 7 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a6575fa5-3afb-4fa7-b341-6aff482937aa",
+      "name": "Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select\n  (select json_agg(r) from retailers r where activo) as retailers,\n  (select json_agg(m) from marcas m where activo)    as marcas;",
+        "options": {}
+      }
+    },
+    {
+      "id": "64517f16-8fa1-48e4-881f-2e0c7e5837e4",
+      "name": "Generar URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Generar URLs\" — arma una búsqueda por cada (cadena × marca × página).\n// Entrada: 1 item con { retailers: [...], marcas: [...] } desde Supabase.\nconst cfg = $input.first().json;\nconst retailers = cfg.retailers || [];\nconst marcas = cfg.marcas || [];\n\nconst PAGINAS_VTEX = 3;     // 3 páginas × 50 = hasta 150 productos por marca y cadena\nconst POR_PAGINA_VTEX = 50; // máximo que acepta VTEX\nconst PAGINAS_COTO = 2;\nconst POR_PAGINA_COTO = 60;\n\nconst fecha = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());\n\nconst out = [];\nfor (const r of retailers) {\n  for (const m of marcas) {\n    const termino = encodeURIComponent(m.termino);\n    if (r.plataforma === 'vtex') {\n      for (let p = 0; p < PAGINAS_VTEX; p++) {\n        const desde = p * POR_PAGINA_VTEX;\n        out.push({ json: {\n          url: `https://${r.dominio}/api/catalog_system/pub/products/search?ft=${termino}&_from=${desde}&_to=${desde + POR_PAGINA_VTEX - 1}`,\n          retailer_id: r.id, plataforma: 'vtex', dominio: r.dominio, marca_id: m.id, pagina: p, fecha,\n        } });\n      }\n    } else if (r.plataforma === 'coto') {\n      for (let p = 0; p < PAGINAS_COTO; p++) {\n        out.push({ json: {\n          url: `https://${r.dominio}/sitios/cdigi/categoria?Dy=1&Ntt=${termino}&Nrpp=${POR_PAGINA_COTO}&No=${p * POR_PAGINA_COTO}&format=json`,\n          retailer_id: r.id, plataforma: 'coto', dominio: r.dominio, marca_id: m.id, pagina: p, fecha,\n        } });\n      }\n    }\n  }\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "8d9655a4-3e8a-490a-8e01-d5fab8bc6de5",
+      "name": "Consultar sitios",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "es-AR,es;q=0.9"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 400
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "body"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "fdc8e0eb-173d-41aa-9219-df733199da57",
+      "name": "Parsear y filtrar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Parsear y filtrar\" — convierte las respuestas de cada sitio en filas de precio.\n// Sólo se quedan productos de las marcas configuradas (Lay's, Doritos, 3D, Cheetos, Tostitos, Twistos, Pehuamar).\n\nconst MARCAS = $('Config').first().json.marcas || [];\nconst respuestas = $input.all();\nconst pedidos = $('Generar URLs').all();\n\n// ---------- utilidades ----------\nconst norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');\nconst normEsp = (s) => ' ' + String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()\n  .replace(/[´`'’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim() + ' ';\nconst num = (v) => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null; };\nconst r2 = (n) => (n == null ? null : Math.round(n * 100) / 100);\n\nconst porClave = {};\nfor (const m of MARCAS) { porClave[norm(m.id)] = m; porClave[norm(m.nombre)] = m; }\nconst GENERICAS = /pepsico|pepsi|fritolay|sabritas/;\n\nfunction detectarMarca(marcaSitio, nombre) {\n  const k = norm(marcaSitio);\n  if (porClave[k]) return porClave[k];\n  if (!k || GENERICAS.test(k)) {               // marca vacía o \"PepsiCo\": miramos el nombre\n    const n = normEsp(nombre);\n    for (const m of MARCAS) {\n      const t = normEsp(m.nombre).trim();\n      if (t === '3d' ? / 3 ?d /.test(n) : n.includes(' ' + t + ' ')) return m;\n    }\n  }\n  return null;\n}\n\nfunction gramajeDesdeTexto(txt) {\n  const m = String(txt || '').match(/(\\d+(?:[.,]\\d+)?)\\s*(kgs?|kilos?|grs?|gramos|grm|g)\\b/i);\n  if (!m) return null;\n  const v = num(m[1]);\n  if (v == null) return null;\n  const g = /^k/i.test(m[2]) ? v * 1000 : v;\n  return g >= 5 && g <= 5000 ? g : null;\n}\n\n// ---------- VTEX (Carrefour, Jumbo, Disco, Vea, Día, ChangoMás) ----------\nfunction parseVtex(productos, meta) {\n  const filas = [];\n  if (!Array.isArray(productos)) return filas;\n  for (const p of productos) {\n    const marca = detectarMarca(p.brand, p.productName);\n    if (!marca) continue;\n    for (const it of p.items || []) {\n      const ean = String(it.ean || '').trim();\n      const clave = /^\\d{8,14}$/.test(ean) ? ean : `SKU-${meta.retailer_id}-${it.itemId}`;\n      const seller = (it.sellers || []).find((s) => s.sellerDefault) || (it.sellers || [])[0] || {};\n      const co = seller.commertialOffer || {};\n      const precio = num(co.Price) > 0 ? num(co.Price) : null;\n\n      // Precio \"antes\": algunas cadenas (ej. Cencosud) publican ListPrice en otra escala.\n      // Sólo lo tomamos si es mayor al precio y menor a 3 veces el precio.\n      let lista = precio;\n      for (const cand of [num(co.ListPrice), num(co.PriceWithoutDiscount)]) {\n        if (precio && cand && cand > precio && cand < precio * 3) lista = Math.max(lista, cand);\n      }\n      const teasers = [...(co.Teasers || []), ...(co.PromotionTeasers || []), ...(co.DiscountHighLight || [])]\n        .map((t) => t && (t.Name || t.name || t['<Name>k__BackingField']))\n        .filter(Boolean);\n      const descuento = precio && lista > precio * 1.005;\n      const promoTexto = teasers.length\n        ? [...new Set(teasers)].join(' | ')\n        : descuento ? `-${Math.round((1 - precio / lista) * 100)}% (antes $${Math.round(lista)})` : null;\n\n      const gramaje = gramajeDesdeTexto(it.nameComplete || it.name || p.productName)\n        ?? gramajeDesdeTexto((p['Contenido Neto'] || [])[0])\n        ?? (/^gr/i.test((p['Gramaje de unidad de medida'] || [])[0] || '') ? num((p['Gramaje de unidad de consumo'] || [])[0]) : null);\n\n      filas.push({\n        retailer_id: meta.retailer_id,\n        ean: clave,\n        nombre: it.nameComplete || it.name || p.productName,\n        marca: marca.nombre,\n        precio: r2(precio),\n        precio_lista: r2(lista),\n        en_promo: Boolean(descuento || teasers.length),\n        promo_texto: promoTexto,\n        disponible: Boolean(co.IsAvailable) && (co.AvailableQuantity == null || co.AvailableQuantity > 0) && precio != null,\n        url: p.link || (p.linkText ? `https://${meta.dominio}/${p.linkText}/p` : null),\n        gramaje_g: gramaje,\n        imagen_url: ((it.images || [])[0] || {}).imageUrl || null,\n      });\n    }\n  }\n  return filas;\n}\n\n// ---------- Coto Digital (Oracle Endeca, ?format=json) ----------\nfunction buscarRegistros(obj, prof = 0) {\n  if (!obj || typeof obj !== 'object' || prof > 12) return null;\n  if (obj['@type'] === 'Category_ResultsList' && Array.isArray(obj.records)) return obj.records;\n  for (const v of Array.isArray(obj) ? obj : Object.values(obj)) {\n    const r = buscarRegistros(v, prof + 1);\n    if (r) return r;\n  }\n  return null;\n}\nconst parseJSONSeguro = (s, def) => { try { return JSON.parse(s); } catch (e) { return def; } };\n\nfunction parseCoto(data, meta) {\n  const filas = [];\n  for (const rec of buscarRegistros(data) || []) {\n    const r = (rec.records && rec.records[0]) || rec;\n    const a = r.attributes || {};\n    const g = (k) => (a[k] || [])[0];\n    const nombre = g('product.displayName') || g('sku.displayName');\n    const marca = detectarMarca(g('product.brand') || g('product.MARCA'), nombre);\n    if (!marca) continue;\n\n    const ean = String(g('product.eanPrincipal') || '').trim();\n    const clave = /^\\d{8,14}$/.test(ean) ? ean : `SKU-coto-${g('record.id')}`;\n    const precio = num(g('sku.activePrice'));\n    const dto = parseJSONSeguro(g('sku.dtoPrice') || '{}', {});\n    let lista = precio;\n    const pl = num(dto.precioLista);\n    if (precio && pl && pl > precio && pl < precio * 3) lista = pl;\n\n    const descuentos = parseJSONSeguro(g('product.dtoDescuentos') || '[]', []);\n    const textos = (Array.isArray(descuentos) ? descuentos : [])\n      .map((d) => d && (d.textoDescuento || d.descripcion || d.nombre || d.texto))\n      .filter(Boolean);\n    const descuento = precio && lista > precio * 1.005;\n\n    const q = num(g('sku.quantity'));\n    const gramaje = gramajeDesdeTexto(nombre) ?? (q && q >= 5 && q <= 5000 ? q : null);\n    const estado = ((r.detailsAction || {}).recordState || '').split('?')[0];\n\n    filas.push({\n      retailer_id: meta.retailer_id,\n      ean: clave,\n      nombre,\n      marca: marca.nombre,\n      precio: r2(precio > 0 ? precio : null),\n      precio_lista: r2(lista > 0 ? lista : null),\n      en_promo: Boolean(descuento || textos.length),\n      promo_texto: textos.length ? [...new Set(textos)].join(' | ')\n        : descuento ? `-${Math.round((1 - precio / lista) * 100)}% (antes $${Math.round(lista)})` : null,\n      disponible: precio > 0,\n      url: estado ? `https://www.cotodigital.com.ar/sitios/cdigi/productos${estado}` : null,\n      gramaje_g: gramaje,\n      imagen_url: g('product.mediumImage.url') || null,\n    });\n  }\n  return filas;\n}\n\n// ---------- recorrer respuestas ----------\nconst filas = [];\nconst vistos = new Set();\nconst errores = [];\nconst conteo = {};\n\nfor (let i = 0; i < respuestas.length; i++) {\n  let meta;\n  try { meta = $('Generar URLs').itemMatching(i).json; } catch (e) { meta = (pedidos[i] || {}).json; }\n  if (!meta) continue;\n  const res = respuestas[i].json || {};\n  if (res.error) { errores.push({ url: meta.url, error: String(res.error.message || res.error).slice(0, 200) }); continue; }\n\n  const cuerpo = res.body ?? res.data;\n  const data = typeof cuerpo === 'string' ? parseJSONSeguro(cuerpo, null) : cuerpo;\n  if (data == null) { errores.push({ url: meta.url, error: 'Respuesta no es JSON (posible bloqueo o página de error)' }); continue; }\n\n  const nuevas = meta.plataforma === 'coto' ? parseCoto(data, meta) : parseVtex(data, meta);\n  for (const f of nuevas) {\n    const k = f.retailer_id + '|' + f.ean;\n    if (vistos.has(k)) continue;\n    vistos.add(k);\n    filas.push(f);\n    conteo[f.retailer_id] = (conteo[f.retailer_id] || 0) + 1;\n  }\n}\n\nconst fecha = (pedidos[0] || { json: {} }).json.fecha\n  || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());\n\nreturn [{ json: {\n  fecha,\n  filas,\n  total: filas.length,\n  por_retailer: conteo,\n  errores: errores.slice(0, 30),\n  cantidad_errores: errores.length,\n} }];\n"
+      }
+    },
+    {
+      "id": "35758aa9-c430-44be-a8e5-1138f8a792cf",
+      "name": "Guardar en Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select ingestar_precios($1::jsonb, $2::date, $3::jsonb) as filas_guardadas;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.filas), $json.fecha, JSON.stringify({ por_retailer: $json.por_retailer, errores: $json.cantidad_errores, muestra_errores: $json.errores }) ] }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Todos los días 7:47": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Generar URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar URLs": {
+      "main": [
+        [
+          {
+            "node": "Consultar sitios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar sitios": {
+      "main": [
+        [
+          {
+            "node": "Parsear y filtrar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear y filtrar": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
