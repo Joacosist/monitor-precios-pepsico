@@ -1,0 +1,408 @@
+{
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "name": "6 · Lector de precio sugerido (carga desde el dashboard)",
+  "nodes": [
+    {
+      "id": "e0c16a08-d970-4e17-bc36-a56332eac4f9",
+      "name": "Nota",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -360
+      ],
+      "parameters": {
+        "width": 560,
+        "height": 300,
+        "content": "## 6 · Lector de precio sugerido\nEl dashboard sube acá el Excel/CSV de precios sugeridos de PepsiCo.\n- **guardar**: escribe los sugeridos en Supabase (`precios_sugeridos`).\n- **emparejar**: para las filas que no traen EAN, Claude busca a qué producto del catálogo corresponde cada descripción. Si tu archivo trae EAN, este paso no se usa (costo de IA = 0).\n\n**Antes de activarlo:**\n1. En \"Validar pedido\" cambiá `CLAVE` por una tuya.\n2. Credenciales: **Supabase Postgres** en los dos nodos Postgres y **Anthropic header** en \"Claude\".\n3. Activá el workflow y pegá la **Production URL** del webhook y la clave en `dashboard/config.local.js`."
+      }
+    },
+    {
+      "id": "83ce75a9-6f82-4b1b-982b-a5a39828119a",
+      "name": "Carga desde el dashboard",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "precio-sugerido",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "webhookId": "cd552b66-7208-42a4-ae94-a2cf640d5e07"
+    },
+    {
+      "id": "ca71a025-eb7b-4cad-861a-f098f72226a6",
+      "name": "Validar pedido",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Validar pedido\" — EDITÁ LA CLAVE (tiene que ser la misma que pongas en dashboard/config.local.js).\nconst CLAVE = 'cambiar-esta-clave';\n\nconst b = $input.first().json.body || {};\nconst error = (mensaje) => [{ json: { accion: 'error', mensaje } }];\nif (String(b.clave || '') !== CLAVE) return error('Clave incorrecta.');\nif (!['emparejar', 'guardar'].includes(b.accion)) return error('Acción desconocida.');\nif (!Array.isArray(b.filas) || !b.filas.length) return error('No llegaron filas.');\nif (b.filas.length > 3000) return error('Demasiadas filas (máximo 3000).');\n\nconst txt = (s, max) => (s == null ? null : String(s).trim().slice(0, max) || null);\nif (b.accion === 'guardar') {\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(b.vigencia || ''))) return error('Falta la fecha de vigencia.');\n  const filas = b.filas\n    .map((f) => ({ ean: txt(f.ean, 20), precio: Number(f.precio), zona_id: txt(f.zona_id, 40),\n      retailer_id: txt(f.retailer_id, 40), descripcion: txt(f.descripcion, 200) }))\n    .filter((f) => /^\\d{8,14}$/.test(f.ean || '') && f.precio > 0);\n  if (!filas.length) return error('Ninguna fila tiene EAN y precio válidos.');\n  return [{ json: { accion: 'guardar', filas: JSON.stringify(filas), vigencia: b.vigencia, lote: txt(b.lote, 120), cantidad: filas.length } }];\n}\n// emparejar: filas sin EAN → la IA busca a qué producto del catálogo corresponde cada una\nconst filas = b.filas.slice(0, 400).map((f, i) => ({ i: Number.isInteger(f.i) ? f.i : i, descripcion: txt(f.descripcion, 200) }))\n  .filter((f) => f.descripcion);\nif (!filas.length) return error('Las filas no tienen descripción.');\nreturn [{ json: { accion: 'emparejar', filas } }];\n"
+      }
+    },
+    {
+      "id": "1b9c503b-1905-421d-a22e-a3cc9d15c44a",
+      "name": "¿Pedido inválido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a9ddd83d-c775-4964-b262-6bdabe3dbdb2",
+              "leftValue": "={{ $json.accion }}",
+              "rightValue": "error",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "18a26563-192e-4b57-980f-f8defa9a2131",
+      "name": "Responder error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        -160
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.mensaje } }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          },
+          "responseCode": 400
+        }
+      }
+    },
+    {
+      "id": "e1bfa3ea-8d0d-470a-af85-fd12378ef495",
+      "name": "¿Guardar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "49b96aea-008e-4b42-9fd6-1da8aa264b60",
+              "leftValue": "={{ $json.accion }}",
+              "rightValue": "guardar",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c44ce851-8b43-4205-bc8d-a3cfbe1a3b37",
+      "name": "Guardar sugeridos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select cargar_sugeridos($1::jsonb, $2::date, $3) as guardados;",
+        "options": {
+          "queryReplacement": "={{ [ $json.filas, $json.vigencia, $json.lote || '' ] }}"
+        }
+      }
+    },
+    {
+      "id": "d2ffaad4-ca48-4871-9bf1-45502843cbde",
+      "name": "Responder guardado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, guardados: $json.guardados } }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "6eac8a5c-809b-4f9e-88d0-6a0446752831",
+      "name": "Catálogo PepsiCo",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        420
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select ean, producto, marca, gramaje_g from v_productos where tipo_marca = 'pepsico' and ean ~ '^[0-9]+$' order by marca, producto limit 1500;",
+        "options": {}
+      }
+    },
+    {
+      "id": "2381c249-6f05-4293-b862-4ec241e465eb",
+      "name": "Armar pedido a Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        420
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Armar pedido a Claude\" — empareja descripciones del archivo con productos del catálogo.\nconst pedido = $('Validar pedido').first().json;\nconst catalogo = $input.all().map((i) => i.json).filter((p) => p && p.ean);\n\nconst sistema = `Sos analista de datos maestros de PepsiCo Argentina (snacks).\nTe paso (A) filas de una lista de precios sugeridos, identificadas por un número, y (B) el catálogo de productos con su EAN.\nPara cada fila de A indicá el EAN del producto de B que es EXACTAMENTE el mismo (misma marca, misma variedad o sabor y mismo gramaje; tolerá diferencias de hasta 5 g y abreviaturas como \"LAY CLAS 85\").\nSi no hay un producto que coincida con seguridad, devolvé ean null: es preferible dejar una fila sin emparejar que emparejarla mal.\nRespondé SOLO un array JSON con objetos {\"i\": número, \"ean\": \"…\" o null}, sin texto antes ni después.`;\n\nconst a = pedido.filas.map((f) => `${f.i} | ${f.descripcion}`).join('\\n');\nconst b = catalogo.map((p) => `${p.ean} | ${p.producto || ''} | ${p.marca || ''} | ${p.gramaje_g != null ? Number(p.gramaje_g) + ' g' : ''}`).join('\\n');\n\nreturn [{ json: {\n  eans: catalogo.map((p) => String(p.ean)),\n  body: {\n    model: 'claude-haiku-5-5',\n    max_tokens: 12000,\n    system: sistema,\n    messages: [{ role: 'user', content: `A) Filas de la lista (número | descripción):\\n${a}\\n\\nB) Catálogo (EAN | producto | marca | gramaje):\\n${b}` }],\n  },\n} }];\n"
+      }
+    },
+    {
+      "id": "2bf3ad25-9aa4-4526-b67d-bd106ed088f3",
+      "name": "Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        420
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "9355d9e9-fe87-45c8-a7fe-5f2079ec3721",
+      "name": "Leer respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        420
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Leer respuesta\" — valida que cada EAN devuelto exista en el catálogo.\nconst res = $input.first().json;\nconst validos = new Set($('Armar pedido a Claude').first().json.eans || []);\nconst texto = (res.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');\nconst ini = texto.indexOf('[');\nconst fin = texto.lastIndexOf(']');\nlet arr = [];\nif (ini >= 0 && fin > ini) { try { arr = JSON.parse(texto.slice(ini, fin + 1)); } catch (e) { arr = []; } }\nconst filas = (Array.isArray(arr) ? arr : [])\n  .filter((x) => x && Number.isInteger(Number(x.i)))\n  .map((x) => ({ i: Number(x.i), ean: x.ean != null && validos.has(String(x.ean)) ? String(x.ean) : null }));\nreturn [{ json: { ok: true, filas, emparejadas: filas.filter((f) => f.ean).length } }];\n"
+      }
+    },
+    {
+      "id": "e67e1cc4-17ce-4d45-80c5-dec3fd832974",
+      "name": "Responder emparejado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        420
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, filas: $json.filas, emparejadas: $json.emparejadas } }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Carga desde el dashboard": {
+      "main": [
+        [
+          {
+            "node": "Validar pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar pedido": {
+      "main": [
+        [
+          {
+            "node": "¿Pedido inválido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Pedido inválido?": {
+      "main": [
+        [
+          {
+            "node": "Responder error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "¿Guardar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Guardar?": {
+      "main": [
+        [
+          {
+            "node": "Guardar sugeridos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Catálogo PepsiCo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar sugeridos": {
+      "main": [
+        [
+          {
+            "node": "Responder guardado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Catálogo PepsiCo": {
+      "main": [
+        [
+          {
+            "node": "Armar pedido a Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar pedido a Claude": {
+      "main": [
+        [
+          {
+            "node": "Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "main": [
+        [
+          {
+            "node": "Leer respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer respuesta": {
+      "main": [
+        [
+          {
+            "node": "Responder emparejado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

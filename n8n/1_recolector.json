@@ -8,12 +8,12 @@
       "typeVersion": 1,
       "position": [
         -60,
-        -340
+        -380
       ],
       "parameters": {
-        "content": "## 1 · Recolector de precios\nBusca Lay's, Doritos, 3D, Cheetos, Tostitos, Twistos y Pehuamar en Carrefour, Jumbo, Disco, Vea, Día, ChangoMás (API pública VTEX) y Coto Digital.\n\n**Antes de activarlo:** elegí la credencial **Supabase Postgres** en los nodos \"Config\" y \"Guardar en Supabase\".\n\nPara sumar/quitar cadenas o marcas no hace falta tocar n8n: editá las tablas `retailers` y `marcas` en Supabase.",
-        "width": 460,
-        "height": 260
+        "content": "## 1 · Recolector de precios (v2: por zona)\n1. Busca las marcas de la tabla `marcas` (PepsiCo, competencia y marcas propias) en Carrefour, Jumbo, Disco, Vea, Día, ChangoMás, Coto y **La Anónima**. Ese precio se guarda como zona **web**.\n2. Para las cadenas que cambian el precio según la ubicación, pide el precio de cada producto en cada **zona activa** (tabla `zonas`) y lo guarda por zona.\n\n**Antes de activarlo:** corré `sql/03_mejoras_v2.sql` en Supabase y elegí la credencial **Supabase Postgres** en \"Config\" y \"Guardar en Supabase\".\n\nZonas, marcas y cadenas se editan en Supabase, sin tocar n8n.",
+        "width": 560,
+        "height": 300
       }
     },
     {
@@ -47,7 +47,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "select\n  (select json_agg(r) from retailers r where activo) as retailers,\n  (select json_agg(m) from marcas m where activo)    as marcas;",
+        "query": "select\n  (select json_agg(r) from retailers r where activo) as retailers,\n  (select json_agg(m) from marcas m where activo)    as marcas,\n  (select json_agg(z order by z.orden) from zonas z where activo) as zonas,\n  (select json_agg(x) from retailer_zonas x)          as retailer_zonas,\n  (select json_agg(p) from (\n      select distinct on (pr.ean) pr.retailer_id, replace(pr.ean, 'SKU-' || pr.retailer_id || '-', '') as sku_retailer, pr.url\n        from precios pr join retailers r on r.id = pr.retailer_id and r.plataforma = 'laanonima'\n       where pr.ean like 'SKU-%' and pr.url is not null and pr.fecha >= current_date - 7\n       order by pr.ean, pr.fecha desc\n       limit 60) p)                                   as pendientes_ean;",
         "options": {}
       }
     },
@@ -61,7 +61,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// Nodo \"Generar URLs\" — arma una búsqueda por cada (cadena × marca × página).\n// Entrada: 1 item con { retailers: [...], marcas: [...] } desde Supabase.\nconst cfg = $input.first().json;\nconst retailers = cfg.retailers || [];\nconst marcas = cfg.marcas || [];\n\nconst PAGINAS_VTEX = 3;     // 3 páginas × 50 = hasta 150 productos por marca y cadena\nconst POR_PAGINA_VTEX = 50; // máximo que acepta VTEX\nconst PAGINAS_COTO = 2;\nconst POR_PAGINA_COTO = 60;\n\nconst fecha = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());\n\nconst out = [];\nfor (const r of retailers) {\n  for (const m of marcas) {\n    const termino = encodeURIComponent(m.termino);\n    if (r.plataforma === 'vtex') {\n      for (let p = 0; p < PAGINAS_VTEX; p++) {\n        const desde = p * POR_PAGINA_VTEX;\n        out.push({ json: {\n          url: `https://${r.dominio}/api/catalog_system/pub/products/search?ft=${termino}&_from=${desde}&_to=${desde + POR_PAGINA_VTEX - 1}`,\n          retailer_id: r.id, plataforma: 'vtex', dominio: r.dominio, marca_id: m.id, pagina: p, fecha,\n        } });\n      }\n    } else if (r.plataforma === 'coto') {\n      for (let p = 0; p < PAGINAS_COTO; p++) {\n        out.push({ json: {\n          url: `https://${r.dominio}/sitios/cdigi/categoria?Dy=1&Ntt=${termino}&Nrpp=${POR_PAGINA_COTO}&No=${p * POR_PAGINA_COTO}&format=json`,\n          retailer_id: r.id, plataforma: 'coto', dominio: r.dominio, marca_id: m.id, pagina: p, fecha,\n        } });\n      }\n    }\n  }\n}\nreturn out;\n"
+        "jsCode": "// Nodo \"Generar URLs\" — arma una búsqueda de catálogo por cada (cadena × marca × término × página).\n// Entrada: 1 item con { retailers, marcas, pendientes_ean } desde Supabase.\n// Los precios por zona se piden después (nodo \"Armar consultas por zona\"), sólo para los productos encontrados.\nconst cfg = $input.first().json;\nconst retailers = cfg.retailers || [];\nconst marcas = cfg.marcas || [];\n\nconst POR_PAGINA_VTEX = 50;   // máximo que acepta VTEX\nconst POR_PAGINA_COTO = 60;\n// páginas por tipo de marca: las de PepsiCo se recorren más a fondo\nconst PAGINAS = { pepsico: { vtex: 3, coto: 2 }, competencia: { vtex: 2, coto: 1 }, marca_propia: { vtex: 1, coto: 1 } };\n\nconst fecha = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());\nconst lista = (s) => String(s || '').split(',').map((x) => x.trim()).filter(Boolean);\n\nconst out = [];\nfor (const r of retailers) {\n  for (const m of marcas) {\n    const solo = lista(m.solo_retailer);\n    if (solo.length && !solo.includes(r.id)) continue;\n    const pags = PAGINAS[m.tipo] || PAGINAS.pepsico;\n    for (const t of String(m.termino || '').split('|').map((x) => x.trim()).filter(Boolean)) {\n      const termino = encodeURIComponent(t);\n      const meta = { tipo: 'catalogo', retailer_id: r.id, plataforma: r.plataforma, dominio: r.dominio, marca_id: m.id, fecha };\n      if (r.plataforma === 'vtex') {\n        for (let p = 0; p < pags.vtex; p++) {\n          const desde = p * POR_PAGINA_VTEX;\n          out.push({ json: { ...meta, pagina: p,\n            url: `https://${r.dominio}/api/catalog_system/pub/products/search?ft=${termino}&_from=${desde}&_to=${desde + POR_PAGINA_VTEX - 1}` } });\n        }\n      } else if (r.plataforma === 'coto') {\n        for (let p = 0; p < pags.coto; p++) {\n          out.push({ json: { ...meta, pagina: p,\n            url: `https://${r.dominio}/sitios/cdigi/categoria?Dy=1&Ntt=${termino}&Nrpp=${POR_PAGINA_COTO}&No=${p * POR_PAGINA_COTO}&format=json` } });\n        }\n      } else if (r.plataforma === 'laanonima') {\n        out.push({ json: { ...meta, pagina: 0, url: `https://${r.dominio}/buscar/${termino}` } });\n      }\n    }\n  }\n}\n\n// La Anónima no publica el EAN en el listado: se lee una vez de la ficha de cada producto nuevo.\nfor (const p of cfg.pendientes_ean || []) {\n  if (!p || !p.url || !/^https:\\/\\//.test(p.url)) continue;\n  out.push({ json: { tipo: 'ean', retailer_id: p.retailer_id, sku_retailer: p.sku_retailer, url: p.url, fecha } });\n}\nreturn out;\n"
       }
     },
     {
@@ -84,7 +84,7 @@
             },
             {
               "name": "Accept",
-              "value": "application/json"
+              "value": "application/json, text/html;q=0.9, */*;q=0.8"
             },
             {
               "name": "Accept-Language",
@@ -124,7 +124,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// Nodo \"Parsear y filtrar\" — convierte las respuestas de cada sitio en filas de precio.\n// Sólo se quedan productos de las marcas configuradas (Lay's, Doritos, 3D, Cheetos, Tostitos, Twistos, Pehuamar).\n\nconst MARCAS = $('Config').first().json.marcas || [];\nconst respuestas = $input.all();\nconst pedidos = $('Generar URLs').all();\n\n// ---------- utilidades ----------\nconst norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');\nconst normEsp = (s) => ' ' + String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()\n  .replace(/[´`'’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim() + ' ';\nconst num = (v) => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null; };\nconst r2 = (n) => (n == null ? null : Math.round(n * 100) / 100);\n\nconst porClave = {};\nfor (const m of MARCAS) { porClave[norm(m.id)] = m; porClave[norm(m.nombre)] = m; }\nconst GENERICAS = /pepsico|pepsi|fritolay|sabritas/;\n\nfunction detectarMarca(marcaSitio, nombre) {\n  const k = norm(marcaSitio);\n  if (porClave[k]) return porClave[k];\n  if (!k || GENERICAS.test(k)) {               // marca vacía o \"PepsiCo\": miramos el nombre\n    const n = normEsp(nombre);\n    for (const m of MARCAS) {\n      const t = normEsp(m.nombre).trim();\n      if (t === '3d' ? / 3 ?d /.test(n) : n.includes(' ' + t + ' ')) return m;\n    }\n  }\n  return null;\n}\n\nfunction gramajeDesdeTexto(txt) {\n  const m = String(txt || '').match(/(\\d+(?:[.,]\\d+)?)\\s*(kgs?|kilos?|grs?|gramos|grm|g)\\b/i);\n  if (!m) return null;\n  const v = num(m[1]);\n  if (v == null) return null;\n  const g = /^k/i.test(m[2]) ? v * 1000 : v;\n  return g >= 5 && g <= 5000 ? g : null;\n}\n\n// ---------- VTEX (Carrefour, Jumbo, Disco, Vea, Día, ChangoMás) ----------\nfunction parseVtex(productos, meta) {\n  const filas = [];\n  if (!Array.isArray(productos)) return filas;\n  for (const p of productos) {\n    const marca = detectarMarca(p.brand, p.productName);\n    if (!marca) continue;\n    for (const it of p.items || []) {\n      const ean = String(it.ean || '').trim();\n      const clave = /^\\d{8,14}$/.test(ean) ? ean : `SKU-${meta.retailer_id}-${it.itemId}`;\n      const seller = (it.sellers || []).find((s) => s.sellerDefault) || (it.sellers || [])[0] || {};\n      const co = seller.commertialOffer || {};\n      const precio = num(co.Price) > 0 ? num(co.Price) : null;\n\n      // Precio \"antes\": algunas cadenas (ej. Cencosud) publican ListPrice en otra escala.\n      // Sólo lo tomamos si es mayor al precio y menor a 3 veces el precio.\n      let lista = precio;\n      for (const cand of [num(co.ListPrice), num(co.PriceWithoutDiscount)]) {\n        if (precio && cand && cand > precio && cand < precio * 3) lista = Math.max(lista, cand);\n      }\n      const teasers = [...(co.Teasers || []), ...(co.PromotionTeasers || []), ...(co.DiscountHighLight || [])]\n        .map((t) => t && (t.Name || t.name || t['<Name>k__BackingField']))\n        .filter(Boolean);\n      const descuento = precio && lista > precio * 1.005;\n      const promoTexto = teasers.length\n        ? [...new Set(teasers)].join(' | ')\n        : descuento ? `-${Math.round((1 - precio / lista) * 100)}% (antes $${Math.round(lista)})` : null;\n\n      const gramaje = gramajeDesdeTexto(it.nameComplete || it.name || p.productName)\n        ?? gramajeDesdeTexto((p['Contenido Neto'] || [])[0])\n        ?? (/^gr/i.test((p['Gramaje de unidad de medida'] || [])[0] || '') ? num((p['Gramaje de unidad de consumo'] || [])[0]) : null);\n\n      filas.push({\n        retailer_id: meta.retailer_id,\n        ean: clave,\n        nombre: it.nameComplete || it.name || p.productName,\n        marca: marca.nombre,\n        precio: r2(precio),\n        precio_lista: r2(lista),\n        en_promo: Boolean(descuento || teasers.length),\n        promo_texto: promoTexto,\n        disponible: Boolean(co.IsAvailable) && (co.AvailableQuantity == null || co.AvailableQuantity > 0) && precio != null,\n        url: p.link || (p.linkText ? `https://${meta.dominio}/${p.linkText}/p` : null),\n        gramaje_g: gramaje,\n        imagen_url: ((it.images || [])[0] || {}).imageUrl || null,\n      });\n    }\n  }\n  return filas;\n}\n\n// ---------- Coto Digital (Oracle Endeca, ?format=json) ----------\nfunction buscarRegistros(obj, prof = 0) {\n  if (!obj || typeof obj !== 'object' || prof > 12) return null;\n  if (obj['@type'] === 'Category_ResultsList' && Array.isArray(obj.records)) return obj.records;\n  for (const v of Array.isArray(obj) ? obj : Object.values(obj)) {\n    const r = buscarRegistros(v, prof + 1);\n    if (r) return r;\n  }\n  return null;\n}\nconst parseJSONSeguro = (s, def) => { try { return JSON.parse(s); } catch (e) { return def; } };\n\nfunction parseCoto(data, meta) {\n  const filas = [];\n  for (const rec of buscarRegistros(data) || []) {\n    const r = (rec.records && rec.records[0]) || rec;\n    const a = r.attributes || {};\n    const g = (k) => (a[k] || [])[0];\n    const nombre = g('product.displayName') || g('sku.displayName');\n    const marca = detectarMarca(g('product.brand') || g('product.MARCA'), nombre);\n    if (!marca) continue;\n\n    const ean = String(g('product.eanPrincipal') || '').trim();\n    const clave = /^\\d{8,14}$/.test(ean) ? ean : `SKU-coto-${g('record.id')}`;\n    const precio = num(g('sku.activePrice'));\n    const dto = parseJSONSeguro(g('sku.dtoPrice') || '{}', {});\n    let lista = precio;\n    const pl = num(dto.precioLista);\n    if (precio && pl && pl > precio && pl < precio * 3) lista = pl;\n\n    const descuentos = parseJSONSeguro(g('product.dtoDescuentos') || '[]', []);\n    const textos = (Array.isArray(descuentos) ? descuentos : [])\n      .map((d) => d && (d.textoDescuento || d.descripcion || d.nombre || d.texto))\n      .filter(Boolean);\n    const descuento = precio && lista > precio * 1.005;\n\n    const q = num(g('sku.quantity'));\n    const gramaje = gramajeDesdeTexto(nombre) ?? (q && q >= 5 && q <= 5000 ? q : null);\n    const estado = ((r.detailsAction || {}).recordState || '').split('?')[0];\n\n    filas.push({\n      retailer_id: meta.retailer_id,\n      ean: clave,\n      nombre,\n      marca: marca.nombre,\n      precio: r2(precio > 0 ? precio : null),\n      precio_lista: r2(lista > 0 ? lista : null),\n      en_promo: Boolean(descuento || textos.length),\n      promo_texto: textos.length ? [...new Set(textos)].join(' | ')\n        : descuento ? `-${Math.round((1 - precio / lista) * 100)}% (antes $${Math.round(lista)})` : null,\n      disponible: precio > 0,\n      url: estado ? `https://www.cotodigital.com.ar/sitios/cdigi/productos${estado}` : null,\n      gramaje_g: gramaje,\n      imagen_url: g('product.mediumImage.url') || null,\n    });\n  }\n  return filas;\n}\n\n// ---------- recorrer respuestas ----------\nconst filas = [];\nconst vistos = new Set();\nconst errores = [];\nconst conteo = {};\n\nfor (let i = 0; i < respuestas.length; i++) {\n  let meta;\n  try { meta = $('Generar URLs').itemMatching(i).json; } catch (e) { meta = (pedidos[i] || {}).json; }\n  if (!meta) continue;\n  const res = respuestas[i].json || {};\n  if (res.error) { errores.push({ url: meta.url, error: String(res.error.message || res.error).slice(0, 200) }); continue; }\n\n  const cuerpo = res.body ?? res.data;\n  const data = typeof cuerpo === 'string' ? parseJSONSeguro(cuerpo, null) : cuerpo;\n  if (data == null) { errores.push({ url: meta.url, error: 'Respuesta no es JSON (posible bloqueo o página de error)' }); continue; }\n\n  const nuevas = meta.plataforma === 'coto' ? parseCoto(data, meta) : parseVtex(data, meta);\n  for (const f of nuevas) {\n    const k = f.retailer_id + '|' + f.ean;\n    if (vistos.has(k)) continue;\n    vistos.add(k);\n    filas.push(f);\n    conteo[f.retailer_id] = (conteo[f.retailer_id] || 0) + 1;\n  }\n}\n\nconst fecha = (pedidos[0] || { json: {} }).json.fecha\n  || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());\n\nreturn [{ json: {\n  fecha,\n  filas,\n  total: filas.length,\n  por_retailer: conteo,\n  errores: errores.slice(0, 30),\n  cantidad_errores: errores.length,\n} }];\n"
+        "jsCode": "// Nodo \"Parsear y filtrar\" — convierte las respuestas de cada sitio en filas de precio (zona \"web\").\n// Sólo se quedan productos de las marcas configuradas en la tabla `marcas` (PepsiCo, competencia y marcas propias).\n\nconst MARCAS = $('Config').first().json.marcas || [];\nconst respuestas = $input.all();\nconst pedidos = $('Generar URLs').all();\n\n// ---------- utilidades ----------\nconst norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');\nconst normEsp = (s) => ' ' + String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()\n  .replace(/[´`'’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim() + ' ';\nconst num = (v) => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null; };\nconst r2 = (n) => (n == null ? null : Math.round(n * 100) / 100);\nconst lista = (s) => String(s || '').split(',').map((x) => x.trim()).filter(Boolean);\n\n// clave normalizada → marcas candidatas (una marca propia sólo vale en su cadena)\nconst porClave = {};\nfor (const m of MARCAS) {\n  for (const k of [m.id, m.nombre, ...lista(m.alias)].map(norm).filter(Boolean)) (porClave[k] = porClave[k] || []).push(m);\n}\nconst valeEn = (m, retailerId) => { const solo = lista(m.solo_retailer); return !solo.length || solo.includes(retailerId); };\nconst GENERICAS = /pepsico|pepsi|fritolay|sabritas/;\nconst ES_SNACK = /snack|papas? fritas?|papas? pay|nacho|tortilla|palito|chizito|mani\\b|mani |conito|copetin|picada|aperitivo/;\n\nfunction detectarMarca(marcaSitio, nombre, retailerId, categorias) {\n  const k = norm(marcaSitio);\n  let m = (porClave[k] || []).find((x) => valeEn(x, retailerId));\n  if (!m && (!k || GENERICAS.test(k))) {         // marca vacía o \"PepsiCo\": miramos el nombre\n    const n = normEsp(nombre);\n    m = MARCAS.find((x) => {\n      if (x.tipo === 'marca_propia' || !valeEn(x, retailerId)) return false;\n      const t = normEsp(x.nombre).trim();\n      return t === '3d' ? / 3 ?d /.test(n) : n.includes(' ' + t + ' ');\n    });\n  }\n  if (!m) return null;\n  // de las marcas propias sólo interesan los snacks (la marca abarca todo el súper)\n  if (m.tipo === 'marca_propia' && !ES_SNACK.test(normEsp(nombre) + ' ' + normEsp(categorias))) return null;\n  return m;\n}\n\nfunction gramajeDesdeTexto(txt) {\n  const m = String(txt || '').match(/(\\d+(?:[.,]\\d+)?)\\s*(kgs?|kilos?|grs?|gramos|grm|g)\\b/i);\n  if (!m) return null;\n  const v = num(m[1]);\n  if (v == null) return null;\n  const g = /^k/i.test(m[2]) ? v * 1000 : v;\n  return g >= 5 && g <= 5000 ? g : null;\n}\n\n// ---------- VTEX (Carrefour, Jumbo, Disco, Vea, Día, ChangoMás) ----------\nfunction parseVtex(productos, meta) {\n  const filas = [];\n  if (!Array.isArray(productos)) return filas;\n  for (const p of productos) {\n    const marca = detectarMarca(p.brand, p.productName, meta.retailer_id, (p.categories || []).join(' '));\n    if (!marca) continue;\n    for (const it of p.items || []) {\n      const ean = String(it.ean || '').trim();\n      const clave = /^\\d{8,14}$/.test(ean) ? ean : `SKU-${meta.retailer_id}-${it.itemId}`;\n      const seller = (it.sellers || []).find((s) => s.sellerDefault) || (it.sellers || [])[0] || {};\n      const co = seller.commertialOffer || {};\n      const precio = num(co.Price) > 0 ? num(co.Price) : null;\n\n      // Precio \"antes\": algunas cadenas (ej. Cencosud) publican ListPrice en otra escala.\n      // Sólo lo tomamos si es mayor al precio y menor a 3 veces el precio.\n      let lista = precio;\n      for (const cand of [num(co.ListPrice), num(co.PriceWithoutDiscount)]) {\n        if (precio && cand && cand > precio && cand < precio * 3) lista = Math.max(lista, cand);\n      }\n      const teasers = [...(co.Teasers || []), ...(co.PromotionTeasers || []), ...(co.DiscountHighLight || [])]\n        .map((t) => t && (t.Name || t.name || t['<Name>k__BackingField']))\n        .filter(Boolean);\n      const descuento = precio && lista > precio * 1.005;\n      const promoTexto = teasers.length\n        ? [...new Set(teasers)].join(' | ')\n        : descuento ? `-${Math.round((1 - precio / lista) * 100)}% (antes $${Math.round(lista)})` : null;\n\n      const gramaje = gramajeDesdeTexto(it.nameComplete || it.name || p.productName)\n        ?? gramajeDesdeTexto((p['Contenido Neto'] || [])[0])\n        ?? (/^gr/i.test((p['Gramaje de unidad de medida'] || [])[0] || '') ? num((p['Gramaje de unidad de consumo'] || [])[0]) : null);\n\n      filas.push({\n        retailer_id: meta.retailer_id,\n        zona_id: 'web',\n        ean: clave,\n        nombre: it.nameComplete || it.name || p.productName,\n        marca: marca.nombre,\n        precio: r2(precio),\n        precio_lista: r2(lista),\n        en_promo: Boolean(descuento || teasers.length),\n        promo_texto: promoTexto,\n        disponible: Boolean(co.IsAvailable) && (co.AvailableQuantity == null || co.AvailableQuantity > 0) && precio != null,\n        url: p.link || (p.linkText ? `https://${meta.dominio}/${p.linkText}/p` : null),\n        gramaje_g: gramaje,\n        imagen_url: ((it.images || [])[0] || {}).imageUrl || null,\n        // datos para pedir el precio por zona (no se guardan)\n        sku_id: it.itemId != null ? String(it.itemId) : null,\n        seller_id: seller.sellerId != null ? String(seller.sellerId) : '1',\n        promo_base: teasers.length ? [...new Set(teasers)].join(' | ') : null,\n      });\n    }\n  }\n  return filas;\n}\n\n// ---------- Coto Digital (Oracle Endeca, ?format=json) ----------\nfunction buscarRegistros(obj, prof = 0) {\n  if (!obj || typeof obj !== 'object' || prof > 12) return null;\n  if (obj['@type'] === 'Category_ResultsList' && Array.isArray(obj.records)) return obj.records;\n  for (const v of Array.isArray(obj) ? obj : Object.values(obj)) {\n    const r = buscarRegistros(v, prof + 1);\n    if (r) return r;\n  }\n  return null;\n}\nconst parseJSONSeguro = (s, def) => { try { return JSON.parse(s); } catch (e) { return def; } };\n\nfunction parseCoto(data, meta) {\n  const filas = [];\n  for (const rec of buscarRegistros(data) || []) {\n    const r = (rec.records && rec.records[0]) || rec;\n    const a = r.attributes || {};\n    const g = (k) => (a[k] || [])[0];\n    const nombre = g('product.displayName') || g('sku.displayName');\n    const marca = detectarMarca(g('product.brand') || g('product.MARCA'), nombre, meta.retailer_id,\n      [g('product.category'), g('product.LDEPAR'), g('product.FAMILIA')].filter(Boolean).join(' '));\n    if (!marca) continue;\n\n    const ean = String(g('product.eanPrincipal') || '').trim();\n    const clave = /^\\d{8,14}$/.test(ean) ? ean : `SKU-coto-${g('record.id')}`;\n    const precio = num(g('sku.activePrice'));\n    const dto = parseJSONSeguro(g('sku.dtoPrice') || '{}', {});\n    let lista = precio;\n    const pl = num(dto.precioLista);\n    if (precio && pl && pl > precio && pl < precio * 3) lista = pl;\n\n    const descuentos = parseJSONSeguro(g('product.dtoDescuentos') || '[]', []);\n    const textos = (Array.isArray(descuentos) ? descuentos : [])\n      .map((d) => d && (d.textoDescuento || d.descripcion || d.nombre || d.texto))\n      .filter(Boolean);\n    const descuento = precio && lista > precio * 1.005;\n\n    const q = num(g('sku.quantity'));\n    const gramaje = gramajeDesdeTexto(nombre) ?? (q && q >= 5 && q <= 5000 ? q : null);\n    const estado = ((r.detailsAction || {}).recordState || '').split('?')[0];\n\n    filas.push({\n      retailer_id: meta.retailer_id,\n      zona_id: 'web',\n      ean: clave,\n      nombre,\n      marca: marca.nombre,\n      precio: r2(precio > 0 ? precio : null),\n      precio_lista: r2(lista > 0 ? lista : null),\n      en_promo: Boolean(descuento || textos.length),\n      promo_texto: textos.length ? [...new Set(textos)].join(' | ')\n        : descuento ? `-${Math.round((1 - precio / lista) * 100)}% (antes $${Math.round(lista)})` : null,\n      disponible: precio > 0,\n      url: estado ? `https://www.cotodigital.com.ar/sitios/cdigi/productos${estado}` : null,\n      gramaje_g: gramaje,\n      imagen_url: g('product.mediumImage.url') || null,\n    });\n  }\n  return filas;\n}\n\n// ---------- La Anónima (HTML: cada producto es un <a data-codigo=… data-precio=…>) ----------\nconst desEscapar = (s) => String(s || '').replace(/&quot;/g, '\"').replace(/&#0?39;/g, \"'\").replace(/&gt;/g, '>')\n  .replace(/&lt;/g, '<').replace(/&amp;/g, '&');\n\nfunction parseLaAnonima(html, meta) {\n  const filas = [];\n  const texto = String(html || '');\n  for (const m of texto.matchAll(/<a\\b[^>]*\\bdata-codigo=\"\\d+\"[^>]*>/g)) {\n    const tag = m[0];\n    const attr = (n) => { const x = tag.match(new RegExp('\\\\s' + n + '=\"([^\"]*)\"')); return x ? desEscapar(x[1]).trim() : null; };\n    const codigo = attr('data-codigo');\n    const nombre = attr('data-nombre');\n    if (!codigo || !nombre) continue;\n    const marca = detectarMarca(attr('data-marca'), nombre, meta.retailer_id, attr('data-rutacategorias'));\n    if (!marca) continue;\n    const precio = num(attr('data-precio'));\n    const anterior = num(attr('data-precio_anterior'));\n    const lista = precio && anterior && anterior > precio && anterior < precio * 3 ? anterior : precio;\n    const descuento = precio && lista > precio * 1.005;\n    const href = attr('href');\n    filas.push({\n      retailer_id: meta.retailer_id,\n      zona_id: 'web',\n      ean: `SKU-${meta.retailer_id}-${codigo}`,     // se reemplaza por el EAN cuando se conoce (tabla equivalencias)\n      nombre,\n      marca: marca.nombre,\n      precio: r2(precio > 0 ? precio : null),\n      precio_lista: r2(lista > 0 ? lista : null),\n      en_promo: Boolean(descuento),\n      promo_texto: descuento ? `-${Math.round((1 - precio / lista) * 100)}% (antes $${Math.round(lista)})` : null,\n      disponible: precio > 0,\n      url: href ? (href.startsWith('http') ? href : `https://${meta.dominio}${href}`) : null,\n      gramaje_g: gramajeDesdeTexto(nombre),\n      imagen_url: null,\n    });\n  }\n  return filas;\n}\n\n// Ficha de producto de La Anónima → EAN\nfunction eanDeFicha(html) {\n  const t = String(html || '');\n  const m = t.match(/\"gtin\\d*\"\\s*:\\s*\"(\\d{8,14})\"/) || t.match(/data-flix-ean=\"(\\d{8,14})\"/);\n  return m ? m[1] : null;\n}\n\n// ---------- recorrer respuestas ----------\nconst filas = [];\nconst vistos = new Set();\nconst errores = [];\nconst conteo = {};\nconst equivalencias = [];\n\nfor (let i = 0; i < respuestas.length; i++) {\n  let meta;\n  try { meta = $('Generar URLs').itemMatching(i).json; } catch (e) { meta = (pedidos[i] || {}).json; }\n  if (!meta) continue;\n  const res = respuestas[i].json || {};\n  if (res.error) { errores.push({ url: meta.url, error: String(res.error.message || res.error).slice(0, 200) }); continue; }\n  const cuerpo = res.body ?? res.data;\n\n  if (meta.tipo === 'ean') {\n    const ean = eanDeFicha(cuerpo);\n    if (ean) equivalencias.push({ retailer_id: meta.retailer_id, sku_retailer: meta.sku_retailer, ean });\n    continue;\n  }\n\n  let nuevas;\n  if (meta.plataforma === 'laanonima') {\n    if (typeof cuerpo !== 'string' || !/data-codigo=/.test(cuerpo)) {\n      // sin productos: o no hay resultados para la búsqueda, o el sitio bloqueó el pedido\n      if (typeof cuerpo !== 'string' || /403 ERROR|Request blocked|Access Denied/i.test(cuerpo)) {\n        errores.push({ url: meta.url, error: 'La Anónima rechazó el pedido (posible bloqueo por IP del servidor)' });\n      }\n      continue;\n    }\n    nuevas = parseLaAnonima(cuerpo, meta);\n  } else {\n    const data = typeof cuerpo === 'string' ? parseJSONSeguro(cuerpo, null) : cuerpo;\n    if (data == null) { errores.push({ url: meta.url, error: 'Respuesta no es JSON (posible bloqueo o página de error)' }); continue; }\n    nuevas = meta.plataforma === 'coto' ? parseCoto(data, meta) : parseVtex(data, meta);\n  }\n  for (const f of nuevas) {\n    const k = f.retailer_id + '|' + f.ean;\n    if (vistos.has(k)) continue;\n    vistos.add(k);\n    filas.push(f);\n    conteo[f.retailer_id] = (conteo[f.retailer_id] || 0) + 1;\n  }\n}\n\nconst fecha = (pedidos[0] || { json: {} }).json.fecha\n  || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());\n\nreturn [{ json: {\n  fecha,\n  filas,\n  equivalencias,\n  total: filas.length,\n  por_retailer: conteo,\n  errores: errores.slice(0, 30),\n  cantidad_errores: errores.length,\n} }];\n"
       }
     },
     {
@@ -133,15 +133,95 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        1100,
+        1760,
         0
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "select ingestar_precios($1::jsonb, $2::date, $3::jsonb) as filas_guardadas;",
+        "query": "select ingestar_precios($1::jsonb, $2::date, $3::jsonb, $4::jsonb) as filas_guardadas;",
         "options": {
-          "queryReplacement": "={{ [ JSON.stringify($json.filas), $json.fecha, JSON.stringify({ por_retailer: $json.por_retailer, errores: $json.cantidad_errores, muestra_errores: $json.errores }) ] }}"
+          "queryReplacement": "={{ [ JSON.stringify($json.filas), $json.fecha, JSON.stringify({ por_retailer: $json.por_retailer, por_zona: $json.por_zona, sin_cobertura: $json.sin_cobertura, errores: $json.cantidad_errores, muestra_errores: $json.errores }), JSON.stringify($json.equivalencias || []) ] }}"
         }
+      }
+    },
+    {
+      "id": "92794214-f9ed-4205-98ce-eca9ddee58ac",
+      "name": "Armar consultas por zona",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Armar consultas por zona\" — por cada cadena que regionaliza precios y cada zona activa,\n// pide el precio de los productos ya encontrados usando la simulación de carrito de VTEX\n// (devuelve precio y disponibilidad para un código postal / sucursal; no crea ningún pedido).\nconst cfg = $('Config').first().json;\nconst base = $input.first().json;\nconst retailers = (cfg.retailers || []).filter((r) => r.plataforma === 'vtex' && ['cp', 'sc'].includes(r.modo_zona));\nconst zonas = (cfg.zonas || []).filter((z) => z.id !== 'web' && z.cp);\nconst excepciones = {};\nfor (const e of cfg.retailer_zonas || []) excepciones[e.retailer_id + '|' + e.zona_id] = e;\n\nconst POR_PEDIDO = 40;   // productos por consulta\nconst out = [];\nfor (const r of retailers) {\n  const prods = (base.filas || []).filter((f) => f.retailer_id === r.id && f.sku_id);\n  if (!prods.length) continue;\n  for (const z of zonas) {\n    const ex = excepciones[r.id + '|' + z.id] || {};\n    if (ex.activo === false) continue;\n    if (r.modo_zona === 'sc' && !ex.sc) continue;      // cadenas por sucursal: sólo las zonas con sucursal cargada\n    const cp = ex.cp || z.cp;\n    for (let i = 0; i < prods.length; i += POR_PEDIDO) {\n      const lote = prods.slice(i, i + POR_PEDIDO);\n      out.push({ json: {\n        tipo: 'zona', retailer_id: r.id, zona_id: z.id,\n        url: `https://${r.dominio}/api/checkout/pub/orderForms/simulation${ex.sc ? '?sc=' + encodeURIComponent(ex.sc) : ''}`,\n        cuerpo: JSON.stringify({\n          items: lote.map((f) => ({ id: f.sku_id, quantity: 1, seller: f.seller_id || '1' })),\n          country: 'ARG', postalCode: String(cp),\n        }),\n      } });\n    }\n  }\n}\n// Si no hay nada para consultar igual hay que seguir hasta \"Guardar\": se manda una consulta vacía.\nif (!out.length) {\n  const r = (cfg.retailers || []).find((x) => x.plataforma === 'vtex') || { dominio: 'www.carrefour.com.ar' };\n  out.push({ json: { tipo: 'nada', url: `https://${r.dominio}/api/checkout/pub/orderForms/simulation`,\n    cuerpo: JSON.stringify({ items: [], country: 'ARG' }) } });\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "ddb3c4d4-a6b6-4eb6-9581-81ba531056e5",
+      "name": "Consultar zonas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "es-AR,es;q=0.9"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 400
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "body"
+            }
+          },
+          "timeout": 30000
+        },
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.cuerpo }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "203de548-e925-42bb-9944-d7d8e5c01fb6",
+      "name": "Unir precios por zona",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nodo \"Unir precios por zona\" — suma a las filas \"web\" una fila por producto, cadena y zona.\nconst base = $('Parsear y filtrar').first().json;\nconst pedidos = $('Armar consultas por zona').all();\nconst respuestas = $input.all();\nconst r2 = (n) => (n == null ? null : Math.round(n * 100) / 100);\nconst parseJSONSeguro = (s) => { try { return JSON.parse(s); } catch (e) { return null; } };\n\nconst porSku = {};\nfor (const f of base.filas || []) if (f.sku_id) porSku[f.retailer_id + '|' + f.sku_id] = f;\n\nconst grupos = {};          // cadena|zona → filas\nconst errores = [...(base.errores || [])];\nlet cantErrores = base.cantidad_errores || 0;\n\nfor (let i = 0; i < respuestas.length; i++) {\n  let meta;\n  try { meta = $('Armar consultas por zona').itemMatching(i).json; } catch (e) { meta = (pedidos[i] || {}).json; }\n  if (!meta || meta.tipo !== 'zona') continue;\n  const res = respuestas[i].json || {};\n  const cuerpo = res.body ?? res.data;\n  const data = typeof cuerpo === 'string' ? parseJSONSeguro(cuerpo) : cuerpo;\n  if (res.error || !data || !Array.isArray(data.items)) {\n    cantErrores++;\n    if (errores.length < 30) errores.push({ url: `${meta.url} [${meta.zona_id}]`, error: String((res.error && (res.error.message || res.error)) || 'Respuesta inválida').slice(0, 200) });\n    continue;\n  }\n  const g = (grupos[meta.retailer_id + '|' + meta.zona_id] = grupos[meta.retailer_id + '|' + meta.zona_id] || []);\n  for (const it of data.items) {\n    const b = porSku[meta.retailer_id + '|' + String(it.id)];\n    if (!b) continue;\n    const precio = Number(it.sellingPrice ?? it.price) > 0 ? Number(it.sellingPrice ?? it.price) / 100 : null;\n    let lista = precio;\n    const lp = Number(it.listPrice) / 100;\n    if (precio && lp > precio && lp < precio * 3) lista = lp;\n    const descuento = precio && lista > precio * 1.005;\n    g.push({\n      retailer_id: b.retailer_id, zona_id: meta.zona_id, ean: b.ean, nombre: b.nombre, marca: b.marca,\n      precio: r2(precio), precio_lista: r2(lista),\n      en_promo: Boolean(descuento || b.promo_base),\n      promo_texto: b.promo_base || (descuento ? `-${Math.round((1 - precio / lista) * 100)}% (antes $${Math.round(lista)})` : null),\n      disponible: it.availability === 'available' && precio != null,\n      _entrega: it.availability !== 'cannotBeDelivered',\n      url: b.url, gramaje_g: b.gramaje_g, imagen_url: b.imagen_url,\n    });\n  }\n}\n\nconst filas = (base.filas || []).map(({ sku_id, seller_id, promo_base, ...f }) => f);\nconst porZona = {};\nconst sinCobertura = [];\nfor (const [k, g] of Object.entries(grupos)) {\n  // si la cadena no entrega NINGÚN producto en ese código postal, no opera en la zona: no se guarda nada\n  if (!g.some((f) => f._entrega && f.precio != null)) { sinCobertura.push(k); continue; }\n  for (const { _entrega, ...f } of g) { if (f.precio != null) filas.push(f); }\n  porZona[k] = g.filter((f) => f.precio != null).length;\n}\n\nreturn [{ json: {\n  fecha: base.fecha,\n  filas,\n  equivalencias: base.equivalencias || [],\n  total: filas.length,\n  por_retailer: base.por_retailer,\n  por_zona: porZona,\n  sin_cobertura: sinCobertura,\n  errores: errores.slice(0, 30),\n  cantidad_errores: cantErrores,\n} }];\n"
       }
     }
   ],
@@ -191,6 +271,39 @@
       ]
     },
     "Parsear y filtrar": {
+      "main": [
+        [
+          {
+            "node": "Armar consultas por zona",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar consultas por zona": {
+      "main": [
+        [
+          {
+            "node": "Consultar zonas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar zonas": {
+      "main": [
+        [
+          {
+            "node": "Unir precios por zona",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unir precios por zona": {
       "main": [
         [
           {
