@@ -16,9 +16,9 @@ Sistema de agentes en **n8n** que todos los días releva los precios de **Lay's,
 |---|---|
 | `sql/01_esquema.sql` | Tablas, funciones y vistas. Se pega en Supabase. |
 | `sql/02_rol_analista.sql` | Usuario de solo lectura para el agente de chat. |
-| `n8n/1_recolector.json` … `5_reporte_semanal.json` | Los 5 workflows para importar en n8n. |
+| `sql/03_mejoras_v2.sql` | Zonas, competencia, tamaños, precio sugerido e historial. Se corre después del 01. |
+| `n8n/1_recolector.json` … `6_lector_precio_sugerido.json` | Los 6 workflows para importar en n8n. |
 | `dashboard/index.html` | El dashboard (una sola página). |
-| `src/*.js` y `build_workflows.mjs` | Código fuente de los nodos (sólo si querés modificar y regenerar los JSON con `node build_workflows.mjs`). |
 
 ## Los 5 agentes
 
@@ -27,6 +27,49 @@ Sistema de agentes en **n8n** que todos los días releva los precios de **Lay's,
 3. **Alertas + mail diario**: compara contra la captura anterior y detecta subas, bajas, promos nuevas o terminadas, quiebres de stock, reposiciones y SKUs nuevos. Claude Sonnet escribe "lo importante" del día y n8n manda el mail.
 4. **Analista (chat)**: un agente con Claude que responde preguntas desde el dashboard consultando la base (por ejemplo, *"¿dónde está más barato Doritos 77g?"*).
 5. **Reporte semanal**: todos los lunes, un análisis de la semana con un Excel adjunto (producto × cadena, variación a 7 días).
+
+---
+
+## Novedades v2 (noviembre 2026)
+
+| Qué | Cómo funciona |
+|---|---|
+| **Precios por zona** | Tabla `zonas` (provincias + "web"). El Recolector guarda el precio web general y, para las cadenas que cambian el precio según la ubicación, el precio en cada zona activa. El dashboard tiene selector de **Zona** y la pestaña **Comparar zonas**. |
+| **La Anónima** | Nueva cadena. No publica el EAN en el listado: se lee una vez de la ficha de cada producto (tabla `equivalencias`). |
+| **Competencia** | 5 Hispanos, Pringles, Krachitos, Saladix y marcas propias de las cadenas (tabla `marcas`, columna `tipo`). Pestaña **Competencia**: precio por kilo por segmento y tamaño (medium / large bag), con apertura por marca y producto. |
+| **Precio sugerido** | Botón **⬆ Precio sugerido**: subís el Excel/CSV de PepsiCo, se empareja por EAN (y con IA las filas sin EAN) y se guarda en `precios_sugeridos`. Pestaña **Sugerido vs. cadena** con el diferencial por segmento. |
+| **Días anteriores** | Selector de **Día** con flechas para moverse entre los días con datos. |
+
+### Cómo actualizar (≈ 15 minutos)
+
+1. **Supabase → SQL Editor**: pegá todo `sql/03_mejoras_v2.sql` y tocá **Run**. No borra nada: los precios que ya tenías quedan en la zona "web".
+2. **n8n**: importá de nuevo los workflows `1` a `5` (reemplazan a los anteriores: desactivá o borrá los viejos) y el nuevo `6_lector_precio_sugerido.json`. Volvé a elegir las credenciales en los nodos con ⚠ y a cargar `DESTINATARIO` en "Configuración" (workflows 3 y 5).
+3. **Workflow 6**: en "Validar pedido" cambiá `CLAVE`, activalo y copiá la Production URL del webhook.
+4. **Dashboard**: reemplazá `dashboard/index.html`. En `config.local.js` agregá `WEBHOOK_SUGERIDOS_LOCAL` y `CLAVE_SUGERIDOS_LOCAL` (ver `config.example.js`). Sin eso el sugerido se guarda sólo en tu navegador.
+5. Ejecutá a mano **1 · Recolector** y después **2 · Normalizador** (varias veces la primera vez: hay muchas marcas nuevas). En el último nodo del Recolector, `por_zona` muestra cuántos precios se guardaron por cadena y zona, y `sin_cobertura` las zonas donde una cadena no entrega.
+
+### Zonas
+
+- Vienen **activas** CABA, GBA (Pilar), Buenos Aires interior, Córdoba, Santa Fe, Mendoza, Neuquén y Tucumán. El resto de las provincias está cargado pero apagado: `update zonas set activo = true where id = 'salta';`
+- Cada zona usa un **código postal de referencia** (columna `cp`). Podés cambiarlo, o agregar zonas más finas (por ciudad) insertando filas.
+- Cómo regionaliza cada cadena (columna `retailers.modo_zona`):
+  - **Carrefour, ChangoMás, Día** (`cp`): el precio depende del código postal. Funciona solo.
+  - **Jumbo, Disco, Vea** (`sc`): el precio depende de la sucursal elegida. Hay que cargar el número de sucursal de cada zona en `retailer_zonas.sc` (es el valor `sc=` que usa el sitio al elegir una tienda). Hasta entonces se guarda sólo su precio web.
+  - **Coto, La Anónima** (`ninguno`): se guarda sólo el precio web. Coto Digital publica una única lista de precios online.
+- En el dashboard, si una cadena no tiene precio propio para la zona elegida se muestra su precio web con la marca **web**.
+
+### Competencia y tamaños
+
+- Sumar una marca: una fila en `marcas` con `tipo = 'competencia'`. `termino` admite varias búsquedas separadas por `|`; `alias` son otros nombres con los que las cadenas publican la marca.
+- Las marcas propias (`tipo = 'marca_propia'`) sólo se buscan en su cadena (`solo_retailer`) y sólo se guardan los snacks. Los `alias` cargados son una primera aproximación: revisalos después de la primera corrida.
+- Rangos de tamaño en la tabla `tamanos`: Single (< 60 g), Medium bag (60 a 120 g), Large bag (121 a 300 g), XL (> 300 g).
+- "Ponderado por presencia": no hay datos de ventas, así que un producto publicado en 6 cadenas pesa 6 veces en el precio por kilo promedio.
+
+### Precio sugerido
+
+- El archivo necesita al menos una columna de **precio** y una de **EAN** o **descripción**. Opcional: una columna de zona (si un precio vale sólo para una zona).
+- Las filas con EAN se emparejan sin IA. Las que no tienen EAN se pueden emparejar con Claude Haiku (botón ✨); conviene revisarlas antes de guardar.
+- Cada carga tiene una fecha "vigente desde": al mirar un día anterior se usa el sugerido que regía ese día.
 
 ---
 
