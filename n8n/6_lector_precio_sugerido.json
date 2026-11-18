@@ -23,7 +23,7 @@
       "parameters": {
         "width": 560,
         "height": 300,
-        "content": "## 6 · Lector de precio sugerido\nEl dashboard sube acá el Excel/CSV de precios sugeridos de PepsiCo.\n- **guardar**: escribe los sugeridos en Supabase (`precios_sugeridos`).\n- **emparejar**: para las filas que no traen EAN, Claude busca a qué producto del catálogo corresponde cada descripción. Si tu archivo trae EAN, este paso no se usa (costo de IA = 0).\n\n**Antes de activarlo:**\n1. En \"Validar pedido\" cambiá `CLAVE` por una tuya.\n2. Credenciales: **Supabase Postgres** en los dos nodos Postgres y **Anthropic header** en \"Claude\".\n3. Activá el workflow y pegá la **Production URL** del webhook y la clave en `dashboard/config.local.js`."
+        "content": "## 6 · Lector de precio sugerido\nEl dashboard sube acá el Excel/CSV de precios sugeridos de PepsiCo.\n- **guardar**: escribe los sugeridos en Supabase (`precios_sugeridos`).\n- **emparejar**: para las filas que no traen EAN, Gemini (gratis) busca a qué producto del catálogo corresponde cada descripción. Si tu archivo trae EAN, este paso no se usa .\n\n**Antes de activarlo:**\n1. En \"Validar pedido\" cambiá `CLAVE` por una tuya.\n2. Credenciales: **Supabase Postgres** en los dos nodos Postgres y la credencial de **Google Gemini (PaLM) API** en \"Gemini (gratis)\".\n3. Activá el workflow y pegá la **Production URL** del webhook y la clave en `dashboard/config.local.js`."
       }
     },
     {
@@ -207,7 +207,7 @@
     },
     {
       "id": "2381c249-6f05-4293-b862-4ec241e465eb",
-      "name": "Armar pedido a Claude",
+      "name": "Armar pedido a Gemini",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -215,12 +215,12 @@
         420
       ],
       "parameters": {
-        "jsCode": "// Nodo \"Armar pedido a Claude\" — empareja descripciones del archivo con productos del catálogo.\nconst pedido = $('Validar pedido').first().json;\nconst catalogo = $input.all().map((i) => i.json).filter((p) => p && p.ean);\n\nconst sistema = `Sos analista de datos maestros de PepsiCo Argentina (snacks).\nTe paso (A) filas de una lista de precios sugeridos, identificadas por un número, y (B) el catálogo de productos con su EAN.\nPara cada fila de A indicá el EAN del producto de B que es EXACTAMENTE el mismo (misma marca, misma variedad o sabor y mismo gramaje; tolerá diferencias de hasta 5 g y abreviaturas como \"LAY CLAS 85\").\nSi no hay un producto que coincida con seguridad, devolvé ean null: es preferible dejar una fila sin emparejar que emparejarla mal.\nRespondé SOLO un array JSON con objetos {\"i\": número, \"ean\": \"…\" o null}, sin texto antes ni después.`;\n\nconst a = pedido.filas.map((f) => `${f.i} | ${f.descripcion}`).join('\\n');\nconst b = catalogo.map((p) => `${p.ean} | ${p.producto || ''} | ${p.marca || ''} | ${p.gramaje_g != null ? Number(p.gramaje_g) + ' g' : ''}`).join('\\n');\n\nreturn [{ json: {\n  eans: catalogo.map((p) => String(p.ean)),\n  body: {\n    model: 'claude-haiku-5-5',\n    max_tokens: 12000,\n    system: sistema,\n    messages: [{ role: 'user', content: `A) Filas de la lista (número | descripción):\\n${a}\\n\\nB) Catálogo (EAN | producto | marca | gramaje):\\n${b}` }],\n  },\n} }];\n"
+        "jsCode": "// Nodo \"Armar pedido a Gemini\" — empareja descripciones del archivo con productos del catálogo (Gemini gratis).\nconst pedido = $('Validar pedido').first().json;\nconst catalogo = $input.all().map((i) => i.json).filter((p) => p && p.ean);\n\nconst sistema = `Sos analista de datos maestros de PepsiCo Argentina (snacks).\nTe paso (A) filas de una lista de precios sugeridos, identificadas por un número, y (B) el catálogo de productos con su EAN.\nPara cada fila de A indicá el EAN del producto de B que es EXACTAMENTE el mismo (misma marca, misma variedad o sabor y mismo gramaje; tolerá diferencias de hasta 5 g y abreviaturas como \"LAY CLAS 85\").\nSi no hay un producto que coincida con seguridad, devolvé ean null: es preferible dejar una fila sin emparejar que emparejarla mal.\nRespondé SOLO un array JSON con objetos {\"i\": número, \"ean\": \"…\" o null}.`;\n\nconst a = pedido.filas.map((f) => `${f.i} | ${f.descripcion}`).join('\\n');\nconst b = catalogo.map((p) => `${p.ean} | ${p.producto || ''} | ${p.marca || ''} | ${p.gramaje_g != null ? Number(p.gramaje_g) + ' g' : ''}`).join('\\n');\n\nreturn [{ json: {\n  eans: catalogo.map((p) => String(p.ean)),\n  body: {\n    systemInstruction: { parts: [{ text: sistema }] },\n    contents: [{ role: 'user', parts: [{ text: `A) Filas de la lista (número | descripción):\\n${a}\\n\\nB) Catálogo (EAN | producto | marca | gramaje):\\n${b}` }] }],\n    generationConfig: { temperature: 0, responseMimeType: 'application/json', maxOutputTokens: 8000 },\n  },\n} }];\n"
       }
     },
     {
       "id": "2bf3ad25-9aa4-4526-b67d-bd106ed088f3",
-      "name": "Claude",
+      "name": "Gemini (gratis)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -229,18 +229,9 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "https://api.anthropic.com/v1/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "anthropic-version",
-              "value": "2023-06-01"
-            }
-          ]
-        },
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.body) }}",
@@ -262,7 +253,7 @@
         420
       ],
       "parameters": {
-        "jsCode": "// Nodo \"Leer respuesta\" — valida que cada EAN devuelto exista en el catálogo.\nconst res = $input.first().json;\nconst validos = new Set($('Armar pedido a Claude').first().json.eans || []);\nconst texto = (res.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');\nconst ini = texto.indexOf('[');\nconst fin = texto.lastIndexOf(']');\nlet arr = [];\nif (ini >= 0 && fin > ini) { try { arr = JSON.parse(texto.slice(ini, fin + 1)); } catch (e) { arr = []; } }\nconst filas = (Array.isArray(arr) ? arr : [])\n  .filter((x) => x && Number.isInteger(Number(x.i)))\n  .map((x) => ({ i: Number(x.i), ean: x.ean != null && validos.has(String(x.ean)) ? String(x.ean) : null }));\nreturn [{ json: { ok: true, filas, emparejadas: filas.filter((f) => f.ean).length } }];\n"
+        "jsCode": "// Nodo \"Leer respuesta\" — valida que cada EAN devuelto exista en el catálogo.\nconst res = $input.first().json;\nconst validos = new Set($('Armar pedido a Gemini').first().json.eans || []);\nconst texto = ((((res.candidates || [])[0] || {}).content || {}).parts || []).map((p) => p.text || '').join('');\nconst ini = texto.indexOf('[');\nconst fin = texto.lastIndexOf(']');\nlet arr = [];\nif (ini >= 0 && fin > ini) { try { arr = JSON.parse(texto.slice(ini, fin + 1)); } catch (e) { arr = []; } }\nconst filas = (Array.isArray(arr) ? arr : [])\n  .filter((x) => x && Number.isInteger(Number(x.i)))\n  .map((x) => ({ i: Number(x.i), ean: x.ean != null && validos.has(String(x.ean)) ? String(x.ean) : null }));\nreturn [{ json: { ok: true, filas, emparejadas: filas.filter((f) => f.ean).length } }];\n"
       }
     },
     {
@@ -364,29 +355,7 @@
       "main": [
         [
           {
-            "node": "Armar pedido a Claude",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Armar pedido a Claude": {
-      "main": [
-        [
-          {
-            "node": "Claude",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Claude": {
-      "main": [
-        [
-          {
-            "node": "Leer respuesta",
+            "node": "Armar pedido a Gemini",
             "type": "main",
             "index": 0
           }
@@ -398,6 +367,28 @@
         [
           {
             "node": "Responder emparejado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar pedido a Gemini": {
+      "main": [
+        [
+          {
+            "node": "Gemini (gratis)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini (gratis)": {
+      "main": [
+        [
+          {
+            "node": "Leer respuesta",
             "type": "main",
             "index": 0
           }
