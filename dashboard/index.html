@@ -15,9 +15,12 @@
 const SUPABASE_URL      = 'https://iulppvxtzzhfzeqhiwdc.supabase.co';   // ej. https://abcdefgh.supabase.co
 const SUPABASE_ANON_KEY = 'sb_publishable_Nr0shL6oq7pssn6T7I17Mw_kwct6o1Q';   // Supabase > Project Settings > API > anon public
 // Las URLs de los webhooks NO van acá (el repo es público): ponelas en config.local.js (ver config.example.js)
-const WEBHOOK_ANALISTA  = window.WEBHOOK_ANALISTA_LOCAL  || '';   // workflow 4 (chat), opcional
-const WEBHOOK_SUGERIDOS = window.WEBHOOK_SUGERIDOS_LOCAL || '';   // workflow 6 (precio sugerido), opcional
-const CLAVE_SUGERIDOS   = window.CLAVE_SUGERIDOS_LOCAL   || '';
+// Si no hay config.local.js (por ejemplo en GitHub Pages), se usan los valores guardados en este navegador:
+// el link del analista se pega una vez en el chat, y el del precio sugerido en la ventana de carga.
+const leerLS = (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+let WEBHOOK_ANALISTA    = window.WEBHOOK_ANALISTA_LOCAL  || leerLS('webhook_analista');    // workflow 4 (chat)
+let WEBHOOK_SUGERIDOS   = window.WEBHOOK_SUGERIDOS_LOCAL || leerLS('webhook_sugeridos');   // workflow 6 (precio sugerido)
+let CLAVE_SUGERIDOS     = window.CLAVE_SUGERIDOS_LOCAL   || leerLS('clave_sugeridos');
 </script>
 <style>
 :root {
@@ -333,6 +336,11 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
       <button class="btn primary" id="btnGuardarSug">Guardar</button>
     </div>
     <div class="na" id="sugNota" style="margin-top:8px;font-size:12px"></div>
+    <div id="conectarSug" hidden style="margin-top:10px;display:grid;gap:8px;grid-template-columns:2fr 1fr auto">
+      <input id="cfgSugUrl" placeholder="Link del webhook del workflow 6 (Production URL)" style="padding:7px 10px;border-radius:8px;border:1px solid var(--ring);background:var(--surface)">
+      <input id="cfgSugClave" type="password" placeholder="Clave" style="padding:7px 10px;border-radius:8px;border:1px solid var(--ring);background:var(--surface)">
+      <button class="btn" id="btnCfgSug">Conectar</button>
+    </div>
   </div>
 </dialog>
 
@@ -1005,9 +1013,17 @@ function pintarCarga() {
   $('#btnGuardarSug').disabled = !(ok + fuera);
   $('#sugNota').innerHTML = WEBHOOK_SUGERIDOS && !DEMO
     ? 'Se guarda en la base (workflow 6) y lo ven todos los que abran el dashboard.' + (sinEan ? ' Las filas sin EAN no se guardan, salvo que las empareje la IA.' : '')
-    : 'El workflow 6 (Lector de precio sugerido) no está conectado: el sugerido se guarda <b>sólo en este navegador</b>. Para guardarlo en la base y emparejar con IA las filas sin EAN, completá WEBHOOK_SUGERIDOS_LOCAL y CLAVE_SUGERIDOS_LOCAL en config.local.js.';
+    : 'El workflow 6 (Lector de precio sugerido) no está conectado en este navegador: el sugerido se guarda <b>sólo acá</b>. <a href="#" id="lnkConectarSug">Conectarlo</a> para guardarlo en la base y emparejar con IA las filas sin EAN.';
+  $('#lnkConectarSug')?.addEventListener('click', (e) => { e.preventDefault(); $('#conectarSug').hidden = false; });
 }
 for (const s of ['#mEan', '#mDesc', '#mPrecio', '#mZona']) $(s).addEventListener('input', resolver);
+$('#btnCfgSug').onclick = () => {
+  const u = $('#cfgSugUrl').value.trim(), c = $('#cfgSugClave').value.trim();
+  if (!/^https:\/\/\S+\/webhook\/\S+$/.test(u) || !c) { $('#sugNota').innerHTML = '<b>Revisá el link y la clave.</b>'; return; }
+  WEBHOOK_SUGERIDOS = u; CLAVE_SUGERIDOS = c;
+  try { localStorage.setItem('webhook_sugeridos', u); localStorage.setItem('clave_sugeridos', c); } catch (e) {}
+  $('#conectarSug').hidden = true; pintarCarga();
+};
 $('#mHoja').addEventListener('input', leerHoja);
 async function webhookSug(cuerpo) {
   const r = await fetch(WEBHOOK_SUGERIDOS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clave: CLAVE_SUGERIDOS, ...cuerpo }) });
@@ -1092,8 +1108,15 @@ function burbuja(texto, quien) { const d = document.createElement('div'); d.clas
 async function preguntar(q) {
   if (!q) return;
   burbuja(q, 'u');
+  // conectar el chat pegando el link del webhook (queda guardado sólo en este navegador)
+  if (/^https:\/\/\S+\/webhook\/\S+$/.test(q)) {
+    WEBHOOK_ANALISTA = q;
+    try { localStorage.setItem('webhook_analista', q); } catch (e) {}
+    burbuja('Listo, quedé conectado. Ya podés preguntarme.', 'a');
+    return;
+  }
   const espera = burbuja('Consultando la base…', 'a');
-  if (!WEBHOOK_ANALISTA) { espera.textContent = 'El chat todavía no está conectado: falta la URL del webhook del workflow 4 en config.local.js (WEBHOOK_ANALISTA_LOCAL).'; return; }
+  if (!WEBHOOK_ANALISTA) { espera.textContent = 'Todavía no estoy conectado en este navegador. Pegá acá el link del webhook del analista (workflow 4 en n8n, "Production URL"; empieza con https:// y tiene /webhook/) y mandalo. Se guarda sólo en este navegador.'; return; }
   try {
     const contexto = `(En el dashboard está elegida la zona "${S.zona}" y el día ${S.fecha}.)`;
     const r = await fetch(WEBHOOK_ANALISTA, { method: 'POST', headers: { 'Content-Type': 'application/json' },
