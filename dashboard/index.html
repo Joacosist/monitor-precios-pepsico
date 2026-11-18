@@ -9,69 +9,95 @@
 <script src="config.local.js"></script>
 <script>
 /* =====================================================================
-   CONFIGURACIÓN — completá estos 3 valores (ver README)
-   Si los dejás vacíos, el dashboard muestra DATOS DE DEMOSTRACIÓN.
+   CONFIGURACIÓN (ver README)
+   Si SUPABASE_URL o SUPABASE_ANON_KEY quedan vacíos, el dashboard muestra DATOS DE DEMOSTRACIÓN.
    ===================================================================== */
 const SUPABASE_URL      = 'https://iulppvxtzzhfzeqhiwdc.supabase.co';   // ej. https://abcdefgh.supabase.co
 const SUPABASE_ANON_KEY = 'sb_publishable_Nr0shL6oq7pssn6T7I17Mw_kwct6o1Q';   // Supabase > Project Settings > API > anon public
-// La URL del webhook NO va acá (el repo es público): ponela en config.local.js (ver config.example.js)
-const WEBHOOK_ANALISTA  = window.WEBHOOK_ANALISTA_LOCAL || '';   // Production URL del webhook del workflow 4 (opcional)
+// Las URLs de los webhooks NO van acá (el repo es público): ponelas en config.local.js (ver config.example.js)
+const WEBHOOK_ANALISTA  = window.WEBHOOK_ANALISTA_LOCAL  || '';   // workflow 4 (chat), opcional
+const WEBHOOK_SUGERIDOS = window.WEBHOOK_SUGERIDOS_LOCAL || '';   // workflow 6 (precio sugerido), opcional
+const CLAVE_SUGERIDOS   = window.CLAVE_SUGERIDOS_LOCAL   || '';
 </script>
 <style>
 :root {
   color-scheme: light;
-  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f2f2ef; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
-  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,.10); --accent: #2a78d6; --accent-ink: #fff;
+  --page: #f6f6f3; --surface: #fcfcfb; --surface-2: #f2f2ef; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,.10); --accent: #2a78d6; --accent-soft: #e6f0fb; --accent-ink: #fff;
   --good: #006300; --bad: #d03b3b; --warn: #b07a00; --promo-bg: #e6f0fb; --low-bg: #e3f3e3; --high-bg: #fbe7e7;
-  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6;
+  --div-neg: #2a78d6; --div-pos: #e34948; --div-mid: #f0efec;
+  --shadow: 0 1px 2px rgba(11,11,11,.04), 0 4px 16px rgba(11,11,11,.04);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
     --page:#0d0d0d; --surface:#1a1a19; --surface-2:#242422; --ink:#f0efec; --ink-2:#c3c2b7; --muted:#898781;
-    --grid:#2c2c2a; --axis:#383835; --ring: rgba(255,255,255,.10); --accent:#3987e5;
+    --grid:#2c2c2a; --axis:#383835; --ring: rgba(255,255,255,.10); --accent:#3987e5; --accent-soft:#1b2a3d;
     --good:#0ca30c; --bad:#e66767; --warn:#fab219; --promo-bg:#1b2a3d; --low-bg:#14301a; --high-bg:#3a1c1c;
-    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9;
+    --div-neg:#3987e5; --div-pos:#e66767; --div-mid:#383835; --shadow: none;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#0ca30c; --s7:#9085e9; --s8:#e66767;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
   --page:#0d0d0d; --surface:#1a1a19; --surface-2:#242422; --ink:#f0efec; --ink-2:#c3c2b7; --muted:#898781;
-  --grid:#2c2c2a; --axis:#383835; --ring: rgba(255,255,255,.10); --accent:#3987e5;
+  --grid:#2c2c2a; --axis:#383835; --ring: rgba(255,255,255,.10); --accent:#3987e5; --accent-soft:#1b2a3d;
   --good:#0ca30c; --bad:#e66767; --warn:#fab219; --promo-bg:#1b2a3d; --low-bg:#14301a; --high-bg:#3a1c1c;
-  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9;
+  --div-neg:#3987e5; --div-pos:#e66767; --div-mid:#383835; --shadow: none;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#0ca30c; --s7:#9085e9; --s8:#e66767;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-.wrap { max-width: 1320px; margin: 0 auto; padding: 20px 16px 60px; }
-header { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
-.eyebrow { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
-h1 { margin: 2px 0 0; font-size: 24px; letter-spacing: -.01em; }
-.sub { color: var(--ink-2); font-size: 13px; }
-.btn { appearance: none; border: 1px solid var(--ring); background: var(--surface); color: var(--ink); padding: 8px 14px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+button, select, input { font: inherit; color: inherit; }
+
+/* ---------- barra superior ---------- */
+.top { position: sticky; top: 0; z-index: 15; background: color-mix(in srgb, var(--page) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--grid); }
+.top-in { max-width: 1360px; margin: 0 auto; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; }
+.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; min-width: 0; }
+.logo { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; font-size: 17px; flex: none; }
+.brand h1 { margin: 0; font-size: 17px; letter-spacing: -.01em; white-space: nowrap; }
+.brand .sub { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctl { display: flex; align-items: center; gap: 6px; }
+.ctl label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+select, input[type=search], input[type=date] { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--ring); background: var(--surface); }
+.btn { appearance: none; border: 1px solid var(--ring); background: var(--surface); padding: 7px 12px; border-radius: 8px; font-weight: 600; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
 .btn:hover { background: var(--surface-2); }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .btn.primary:hover { filter: brightness(1.08); }
-.btn:disabled { opacity: .5; cursor: progress; }
-.banner { background: var(--promo-bg); border: 1px solid var(--ring); padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 13px; }
-.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
-select, input[type=search] { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--ring); background: var(--surface); color: var(--ink); }
-input[type=search] { min-width: 200px; flex: 1 1 200px; max-width: 320px; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn.ico { padding: 7px 9px; }
+.btn:disabled { opacity: .45; cursor: default; }
+
+.wrap { max-width: 1360px; margin: 0 auto; padding: 16px 16px 90px; }
+.banner { background: var(--accent-soft); border: 1px solid var(--ring); padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 13px; }
+
+/* ---------- pestañas ---------- */
+.nav { display: flex; gap: 2px; background: var(--surface-2); border: 1px solid var(--ring); padding: 3px; border-radius: 11px; width: fit-content; max-width: 100%; overflow-x: auto; margin-bottom: 14px; }
+.nav button { border: 0; background: none; padding: 7px 14px; border-radius: 8px; cursor: pointer; color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+.nav button.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.view { display: none; } .view.on { display: block; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+input[type=search] { min-width: 200px; flex: 1 1 200px; max-width: 300px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--ring); background: var(--surface); cursor: pointer; font-size: 13px; user-select: none; }
 .chip .dot { width: 9px; height: 9px; border-radius: 50%; }
-.chip.off { opacity: .45; }
-.chip.off .dot { background: var(--axis) !important; }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.kpi { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 14px 16px; }
-.kpi .v { font-size: 26px; font-weight: 700; letter-spacing: -.01em; }
-.kpi .l { font-size: 12px; color: var(--ink-2); }
+.chip.off { opacity: .45; } .chip.off .dot { background: var(--axis) !important; }
+.chip.sel { background: var(--accent-soft); border-color: var(--accent); }
+.chip small { color: var(--muted); }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kpi { background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow); }
+.kpi .l { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+.kpi .v { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin-top: 2px; }
 .kpi .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .grid2 { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
 @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
-.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 16px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 16px; min-width: 0; box-shadow: var(--shadow); margin-bottom: 14px; }
+.grid2 .card { margin-bottom: 0; }
 .card h2 { margin: 0 0 2px; font-size: 15px; }
-.card .hint { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.card .hint { font-size: 12px; color: var(--muted); margin-bottom: 10px; max-width: 90ch; }
+.card-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
 .chart-box { position: relative; height: 290px; }
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
 .tab { font-size: 12px; padding: 4px 9px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; color: var(--ink-2); }
@@ -79,34 +105,57 @@ input[type=search] { min-width: 200px; flex: 1 1 200px; max-width: 320px; }
 .feed { max-height: 300px; overflow: auto; }
 .al { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; padding: 8px 2px; border-bottom: 1px solid var(--grid); font-size: 13px; }
 .al .ico { font-size: 14px; text-align: center; }
-.al .t { color: var(--ink); }
 .al .m { color: var(--muted); font-size: 12px; }
 .al .x { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .up { color: var(--bad); font-weight: 600; } .down { color: var(--good); font-weight: 600; }
 .empty { color: var(--muted); padding: 20px 4px; font-size: 13px; }
-.tbl-wrap { overflow: auto; max-height: 640px; border-radius: 8px; border: 1px solid var(--grid); }
-table.matriz { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
-.matriz th, .matriz td { padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
-.matriz thead th { position: sticky; top: 0; background: var(--surface-2); z-index: 2; text-align: right; font-weight: 600; color: var(--ink-2); cursor: pointer; }
-.matriz thead th:first-child, #matriz thead th:nth-child(2) { text-align: left; }
-.matriz td.p { text-align: right; font-variant-numeric: tabular-nums; }
-.matriz td.prod { position: sticky; left: 0; background: var(--surface); z-index: 1; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
-.matriz tbody tr { cursor: pointer; }
-.matriz tbody tr:hover td { background: var(--surface-2); }
-.matriz td.low { background: var(--low-bg); font-weight: 700; }
-.matriz td.high { background: var(--high-bg); }
+
+/* ---------- tablas ---------- */
+.tbl-wrap { overflow: auto; max-height: 640px; border-radius: 10px; border: 1px solid var(--grid); }
+table.t { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
+.t th, .t td { padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.t thead th { position: sticky; top: 0; background: var(--surface-2); z-index: 2; text-align: right; font-weight: 600; color: var(--ink-2); }
+.t thead th.l, .t td.l { text-align: left; }
+.t thead th[data-c] { cursor: pointer; }
+.t td { text-align: right; font-variant-numeric: tabular-nums; }
+.t td.prod { text-align: left; position: sticky; left: 0; background: var(--surface); z-index: 1; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+.t thead th.prod { left: 0; z-index: 3; text-align: left; }
+.t tbody tr.click { cursor: pointer; }
+.t tbody tr.click:hover td { background: var(--surface-2); }
+.t td.low { background: var(--low-bg); font-weight: 700; }
+.t td.high { background: var(--high-bg); }
+.t tr.sub td { background: var(--surface-2); font-size: 12.5px; }
+.t tr.sub2 td { font-size: 12px; color: var(--ink-2); }
+.t tr.sub td.prod, .t tr.sub2 td.prod { background: inherit; }
+.t td.sug { color: var(--ink-2); border-right: 1px solid var(--grid); }
 .tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-left: 4px; vertical-align: 1px; }
 .tag.promo { background: var(--promo-bg); color: var(--accent); }
+.tag.web { background: var(--surface-2); color: var(--muted); font-weight: 600; }
+.tag.tipo { background: var(--surface-2); color: var(--ink-2); font-weight: 600; margin-left: 0; }
 .var { font-size: 11px; margin-left: 4px; }
+.dif { font-size: 11px; display: block; color: var(--ink-2); }
 .na { color: var(--muted); }
-.legend-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--ink-2); margin: 8px 0 0; }
-.legend-row span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
-dialog { border: 1px solid var(--ring); border-radius: 14px; background: var(--surface); color: var(--ink); padding: 18px; width: min(860px, 94vw); }
+.cell-div { border-radius: 6px; padding: 3px 8px; display: inline-block; min-width: 62px; text-align: right; font-weight: 600; }
+.twist { display: inline-block; width: 14px; color: var(--muted); }
+.legend-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--ink-2); margin: 10px 0 0; }
+.legend-row span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--c); border: 1px solid var(--ring); }
+.scale { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.scale i { width: 120px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, var(--div-neg), var(--div-mid), var(--div-pos)); display: inline-block; }
+
+/* ---------- diálogos ---------- */
+dialog { border: 1px solid var(--ring); border-radius: 16px; background: var(--surface); color: var(--ink); padding: 20px; width: min(900px, 94vw); max-height: 92vh; }
 dialog::backdrop { background: rgba(0,0,0,.45); }
 .dlg-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
 .dlg-head h3 { margin: 0; font-size: 17px; }
 .x-btn { background: none; border: 0; font-size: 22px; line-height: 1; cursor: pointer; color: var(--ink-2); }
-.chat-fab { position: fixed; right: 20px; bottom: 20px; z-index: 20; box-shadow: 0 6px 22px rgba(0,0,0,.18); }
+.drop { border: 2px dashed var(--axis); border-radius: 12px; padding: 26px; text-align: center; color: var(--ink-2); cursor: pointer; margin-top: 14px; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.map { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+.map label { display: grid; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--surface-2); margin-right: 6px; }
+
+/* ---------- chat ---------- */
+.chat-fab { position: fixed; right: 20px; bottom: 20px; z-index: 20; box-shadow: 0 6px 22px rgba(0,0,0,.18); padding: 10px 16px; border-radius: 999px; }
 .chat { position: fixed; right: 20px; bottom: 76px; width: min(400px, calc(100vw - 32px)); height: min(540px, 70vh); background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.25); display: none; flex-direction: column; z-index: 20; }
 .chat.open { display: flex; }
 .chat-h { padding: 12px 14px; border-bottom: 1px solid var(--grid); font-weight: 700; display: flex; justify-content: space-between; }
@@ -115,102 +164,207 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .msg.u { align-self: flex-end; background: var(--accent); color: var(--accent-ink); }
 .msg.a { align-self: flex-start; background: var(--surface-2); }
 .chat-f { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--grid); }
-.chat-f input { flex: 1; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--ring); background: var(--page); color: var(--ink); }
+.chat-f input { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--ring); background: var(--page); }
 .sugs { display: flex; flex-wrap: wrap; gap: 6px; }
 .sug { font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--ring); cursor: pointer; background: var(--surface); }
 .loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--page); z-index: 50; color: var(--ink-2); }
-@media (max-width: 600px) { h1 { font-size: 20px; } .kpi .v { font-size: 22px; } }
+.busy { opacity: .5; pointer-events: none; transition: opacity .15s; }
+@media (max-width: 700px) { .brand .sub { display: none; } .kpi .v { font-size: 22px; } }
 </style>
 </head>
 <body>
 <div class="loading" id="loading">Cargando precios…</div>
-<div class="wrap">
-  <header>
-    <div>
-      <div class="eyebrow">Monitor de precios · Snacks PepsiCo · Supermercados online</div>
-      <h1>Precios en góndola online</h1>
-      <div class="sub" id="sub"></div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn" id="btnTema" title="Cambiar tema">◐ Tema</button>
-      <button class="btn primary" id="btnExcel">⬇ Descargar Excel</button>
-    </div>
-  </header>
 
+<div class="top"><div class="top-in">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">$</div>
+    <div style="min-width:0"><h1>Monitor de precios · Snacks</h1><div class="sub" id="sub"></div></div>
+  </div>
+  <div class="ctl"><label for="fZona">Zona</label><select id="fZona"></select></div>
+  <div class="ctl"><label for="fFecha">Día</label>
+    <button class="btn ico" id="btnPrev" title="Día anterior con datos" aria-label="Día anterior">‹</button>
+    <input type="date" id="fFecha">
+    <button class="btn ico" id="btnNext" title="Día siguiente con datos" aria-label="Día siguiente">›</button>
+    <button class="btn" id="btnHoy" title="Ir al último día capturado">Último</button>
+  </div>
+  <div class="ctl">
+    <button class="btn" id="btnSug">⬆ Precio sugerido</button>
+    <button class="btn primary" id="btnExcel">⬇ Excel</button>
+    <button class="btn ico" id="btnTema" title="Cambiar tema" aria-label="Cambiar tema">◐</button>
+  </div>
+</div></div>
+
+<div class="wrap" id="wrap">
   <div class="banner" id="banner" hidden></div>
 
-  <div class="filters">
-    <select id="fMarca"><option value="">Todas las marcas</option></select>
-    <select id="fSegmento"><option value="">Todos los segmentos</option></select>
-    <input type="search" id="fBuscar" placeholder="Buscar producto o EAN…">
-    <label class="sub" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="fPromo"> Sólo en promo</label>
+  <div class="nav" id="nav" role="tablist">
+    <button data-v="resumen" class="on">Resumen</button>
+    <button data-v="matriz">Matriz de precios</button>
+    <button data-v="sugerido">Sugerido vs. cadena</button>
+    <button data-v="competencia">Competencia</button>
+    <button data-v="zonas">Comparar zonas</button>
   </div>
-  <div class="chips" id="chips" style="margin:-6px 0 16px"></div>
 
-  <section class="kpis" id="kpis"></section>
+  <div class="filters" id="filters">
+    <select id="fTipo" title="Qué marcas mirar">
+      <option value="pepsico">Marcas PepsiCo</option><option value="competencia">Competencia</option>
+      <option value="marca_propia">Marcas propias</option><option value="">Todas las marcas</option>
+    </select>
+    <select id="fMarca"><option value="">Todas</option></select>
+    <select id="fSegmento"><option value="">Todos los segmentos</option></select>
+    <select id="fTamano"><option value="">Todos los tamaños</option></select>
+    <input type="search" id="fBuscar" placeholder="Buscar producto o EAN…">
+    <label class="sub" style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--ink-2)"><input type="checkbox" id="fPromo"> Sólo en promo</label>
+  </div>
+  <div class="chips" id="chips"></div>
 
-  <section class="grid2">
-    <div class="card">
-      <h2>Índice de precios por cadena</h2>
-      <div class="hint">100 = precio mediano del mercado para el mismo producto. Debajo de 100 = más barato que el resto.</div>
-      <div class="chart-box"><canvas id="chIndice" aria-label="Índice de precios por cadena a lo largo del tiempo" role="img"></canvas></div>
+  <!-- ============ RESUMEN ============ -->
+  <section class="view on" id="v-resumen">
+    <div class="kpis" id="kpis"></div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Índice de precios por cadena</h2>
+        <div class="hint">100 = precio mediano del mercado para el mismo producto PepsiCo en la zona elegida. Debajo de 100 = más barato que el resto.</div>
+        <div class="chart-box"><canvas id="chIndice" aria-label="Índice de precios por cadena a lo largo del tiempo" role="img"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>Cambios detectados</h2>
+        <div class="hint" id="alHint">14 días hasta el día elegido</div>
+        <div class="tabs" id="alTabs"></div>
+        <div class="feed" id="feed"></div>
+      </div>
     </div>
     <div class="card">
-      <h2>Cambios detectados</h2>
-      <div class="hint" id="alHint">Últimos 14 días</div>
-      <div class="tabs" id="alTabs"></div>
-      <div class="feed" id="feed"></div>
+      <h2>Precio de la cadena vs. sugerido PepsiCo, por segmento</h2>
+      <div class="hint">Diferencia promedio entre el precio de góndola online y el sugerido. El detalle por producto está en la pestaña "Sugerido vs. cadena".</div>
+      <div id="resSug"></div>
     </div>
   </section>
 
-  <section class="card">
-    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline">
-      <div>
-        <h2>Matriz de precios de hoy</h2>
-        <div class="hint">Tocá un producto para ver su historial. Ordená tocando los encabezados.</div>
+  <!-- ============ MATRIZ ============ -->
+  <section class="view" id="v-matriz">
+    <div class="card">
+      <div class="card-head">
+        <div><h2>Matriz de precios</h2><div class="hint">Tocá un producto para ver su historial y su precio en cada zona. Ordená tocando los encabezados.</div></div>
+        <div class="na" id="contador"></div>
       </div>
-      <div class="sub" id="contador"></div>
+      <div class="tbl-wrap"><table class="t" id="matriz"></table></div>
+      <div class="legend-row">
+        <span style="--c:var(--low-bg)">Precio más bajo de la fila</span>
+        <span style="--c:var(--high-bg)">Precio más alto</span>
+        <span style="--c:var(--promo-bg)">PROMO = en oferta</span>
+        <span style="--c:var(--surface-2)">web = la cadena no publica precio propio para la zona; se muestra su precio web general</span>
+        <span style="--c:transparent">— = no publicado · ✕ = sin stock</span>
+      </div>
     </div>
-    <div class="tbl-wrap"><table class="matriz" id="matriz"></table></div>
-    <div class="legend-row">
-      <span style="--c:var(--low-bg)">Precio más bajo de la fila</span>
-      <span style="--c:var(--high-bg)">Precio más alto</span>
-      <span style="--c:var(--promo-bg)">PROMO = en oferta</span>
-      <span style="--c:transparent">— = no publicado · ✕ = sin stock</span>
+  </section>
+
+  <!-- ============ SUGERIDO ============ -->
+  <section class="view" id="v-sugerido">
+    <div class="card">
+      <div class="card-head">
+        <div><h2>Diferencial por segmento</h2><div class="hint">Promedio de (precio de la cadena ÷ precio sugerido − 1) entre los productos PepsiCo con sugerido cargado. Tocá un segmento para filtrar el detalle de abajo.</div></div>
+        <div class="scale">por debajo <i></i> por encima del sugerido</div>
+      </div>
+      <div id="sugSeg"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div><h2>Sugerido, precio de la cadena y diferencial</h2><div class="hint" id="sugHint"></div></div>
+        <div class="na" id="sugCont"></div>
+      </div>
+      <div class="tbl-wrap"><table class="t" id="sugTabla"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ COMPETENCIA ============ -->
+  <section class="view" id="v-competencia">
+    <div class="card">
+      <div class="card-head">
+        <div><h2>PepsiCo vs. competencia, por segmento y tamaño</h2>
+          <div class="hint">Se compara el precio por kilo dentro del mismo segmento y tamaño de bolsa. Índice 100 = PepsiCo al mismo precio por kilo que la competencia; 120 = 20% más caro. Tocá una fila para abrirla por marca y después por producto.</div></div>
+        <div class="ctl"><label for="fPond">Promedio</label>
+          <select id="fPond"><option value="presencia">Ponderado por presencia en cadenas</option><option value="simple">Simple (cada producto vale 1)</option></select></div>
+      </div>
+      <div class="chips" id="chipsTam" style="margin-bottom:10px"></div>
+      <div class="tbl-wrap"><table class="t" id="compTabla"></table></div>
+      <div class="hint" style="margin:10px 0 0">No hay datos de ventas, así que "ponderado por presencia" significa que un producto publicado en 6 cadenas pesa 6 veces y uno publicado en 1 pesa 1. Sólo cuentan precios con stock.</div>
+    </div>
+  </section>
+
+  <!-- ============ ZONAS ============ -->
+  <section class="view" id="v-zonas">
+    <div class="card">
+      <div class="card-head">
+        <div><h2>¿Cuánto cambia el precio según la zona?</h2>
+          <div class="hint">Para cada cadena y zona: diferencia promedio contra el precio web general de la misma cadena, comparando los mismos productos (según el filtro de marcas de arriba). Vacío = la cadena no publica precio propio para esa zona.</div></div>
+        <div class="scale">más barato <i></i> más caro que el precio web</div>
+      </div>
+      <div class="tbl-wrap"><table class="t" id="zonasTabla"></table></div>
     </div>
   </section>
 </div>
 
+<!-- detalle de producto -->
 <dialog id="dlg">
-  <div class="dlg-head"><div><h3 id="dlgTit"></h3><div class="sub" id="dlgSub"></div></div><button class="x-btn" onclick="dlg.close()" aria-label="Cerrar">×</button></div>
-  <div class="chart-box" style="height:320px;margin-top:12px"><canvas id="chHist" aria-label="Historial de precio por cadena" role="img"></canvas></div>
+  <div class="dlg-head"><div><h3 id="dlgTit"></h3><div class="na" id="dlgSub"></div></div><button class="x-btn" onclick="dlg.close()" aria-label="Cerrar">×</button></div>
+  <div class="chart-box" style="height:300px;margin-top:12px"><canvas id="chHist" aria-label="Historial de precio por cadena" role="img"></canvas></div>
   <div id="dlgTabla" style="margin-top:12px;overflow:auto"></div>
+  <div id="dlgZonas" style="margin-top:12px;overflow:auto"></div>
+</dialog>
+
+<!-- carga de precio sugerido -->
+<dialog id="dlgSug">
+  <div class="dlg-head"><div><h3>Cargar precio sugerido PepsiCo</h3><div class="na">Excel (.xlsx, .xls) o CSV con una fila por producto.</div></div><button class="x-btn" onclick="dlgSug.close()" aria-label="Cerrar">×</button></div>
+  <div class="drop" id="sugDrop">Arrastrá el archivo acá o <u>elegilo</u><input type="file" id="sugFile" accept=".xlsx,.xls,.csv" hidden></div>
+  <div id="sugPaso2" hidden>
+    <div class="map">
+      <label>Hoja<select id="mHoja"></select></label>
+      <label>Columna EAN<select id="mEan"></select></label>
+      <label>Columna descripción<select id="mDesc"></select></label>
+      <label>Columna precio sugerido<select id="mPrecio"></select></label>
+      <label>Columna zona (opcional)<select id="mZona"></select></label>
+      <label>Vigente desde<input type="date" id="mVig"></label>
+    </div>
+    <div id="sugEstado" style="margin-bottom:10px"></div>
+    <div class="tbl-wrap" style="max-height:260px"><table class="t" id="sugPrev"></table></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px">
+      <button class="btn" id="btnIA" hidden>✨ Emparejar con IA las filas sin EAN</button>
+      <button class="btn primary" id="btnGuardarSug">Guardar</button>
+    </div>
+    <div class="na" id="sugNota" style="margin-top:8px;font-size:12px"></div>
+  </div>
 </dialog>
 
 <button class="btn primary chat-fab" id="chatFab">💬 Preguntale al analista</button>
 <div class="chat" id="chat">
   <div class="chat-h">Analista de precios (IA) <button class="x-btn" onclick="toggleChat()" aria-label="Cerrar">×</button></div>
   <div class="chat-b" id="chatB">
-    <div class="msg a">Hola, soy el analista. Preguntame sobre precios, promos o quiebres. Por ejemplo:</div>
+    <div class="msg a">Hola, soy el analista. Preguntame sobre precios, promos, zonas o competencia. Por ejemplo:</div>
     <div class="sugs">
       <span class="sug">¿Dónde está más barato Doritos queso 77g?</span>
-      <span class="sug">¿Qué cadena subió más precios esta semana?</span>
-      <span class="sug">¿Qué promos tiene Coto en Lay's?</span>
+      <span class="sug">¿Qué diferencia hay entre Carrefour en GBA y en Neuquén?</span>
+      <span class="sug">¿Qué productos están más de 10% arriba del sugerido?</span>
     </div>
   </div>
   <form class="chat-f" id="chatF"><input id="chatIn" placeholder="Escribí tu pregunta…" autocomplete="off"><button class="btn primary">Enviar</button></form>
 </div>
 
 <script>
+// =====================================================================
+//  Constantes y utilidades
+// =====================================================================
 const RET = [
   { id: 'carrefour', nombre: 'Carrefour', c: '--s1' }, { id: 'jumbo', nombre: 'Jumbo', c: '--s2' },
   { id: 'disco', nombre: 'Disco', c: '--s3' }, { id: 'vea', nombre: 'Vea', c: '--s4' },
   { id: 'dia', nombre: 'Día', c: '--s5' }, { id: 'changomas', nombre: 'ChangoMás', c: '--s6' },
-  { id: 'coto', nombre: 'Coto', c: '--s7' },
+  { id: 'coto', nombre: 'Coto', c: '--s7' }, { id: 'laanonima', nombre: 'La Anónima', c: '--s8' },
 ];
 const RET_BY = Object.fromEntries(RET.map(r => [r.id, r]));
 const ICON = { suba: '▲', baja: '▼', promo_nueva: '🏷', promo_fin: '⌛', quiebre: '⚠', reposicion: '✓', nuevo_sku: '✦' };
 const NOMBRE_TIPO = { suba: 'Subas', baja: 'Bajas', promo_nueva: 'Promos nuevas', promo_fin: 'Promos terminadas', quiebre: 'Quiebres', reposicion: 'Reposiciones', nuevo_sku: 'SKUs nuevos' };
+const TIPO_MARCA = { pepsico: 'PepsiCo', competencia: 'Competencia', marca_propia: 'Marca propia' };
+const ORDEN_TAM = ['Single', 'Medium bag', 'Large bag', 'XL / Familiar'];
 const DEMO = !SUPABASE_URL || !SUPABASE_ANON_KEY;
 
 const $ = (s) => document.querySelector(s);
@@ -221,18 +375,31 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<':
 const hoyAR = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
 const masDias = (f, d) => { const x = new Date(f + 'T12:00:00'); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10); };
 const fLarga = (f) => new Date(f + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const fCorta = (f) => new Date(f + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+const prom = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+const sinTildes = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+// color de fondo para un diferencial (escala divergente: azul = por debajo, rojo = por encima, gris = igual)
+const fondoDiv = (v, tope = 15) => { if (v == null) return ''; const t = Math.max(-1, Math.min(1, v / tope)); return `background: color-mix(in oklab, var(${t < 0 ? '--div-neg' : '--div-pos'}) ${Math.round(Math.abs(t) * 46)}%, var(--div-mid))`; };
+const celdaDiv = (v, tit = '') => v == null ? '<span class="na">—</span>' : `<span class="cell-div" style="${fondoDiv(v)}" title="${esc(tit)}">${pct(v)}</span>`;
 
-let S = { hoy: [], indice: [], alertas: [], filtroRet: new Set(RET.map(r => r.id)), orden: { col: 'marca', asc: true }, tipoAl: 'todas', fecha: null };
+const S = {
+  zonas: [], fechas: [], zona: 'web', fecha: null, ultima: null,
+  rows: [], indice: [], alertas: [], porZona: null, porZonaClave: '',
+  filtroRet: new Set(RET.map(r => r.id)), orden: { col: 'marca', asc: true }, tipoAl: 'todas', vista: 'resumen',
+  segSug: '', tamSel: new Set(['Medium bag', 'Large bag']), abiertos: new Set(), legacy: false, sugLocal: null,
+};
 let charts = {};
 
-// ---------------- datos ----------------
-async function api(vista, query) {
+// =====================================================================
+//  Datos: Supabase
+// =====================================================================
+async function api(ruta, query = '') {
   const filas = [];
   for (let desde = 0; ; desde += 1000) {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${vista}?${query}`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${ruta}${query ? '?' + query : ''}`, {
       headers: { apikey: SUPABASE_ANON_KEY, ...(SUPABASE_ANON_KEY.startsWith('sb_') ? {} : { Authorization: `Bearer ${SUPABASE_ANON_KEY}` }), Range: `${desde}-${desde + 999}`, 'Range-Unit': 'items' },
     });
-    if (!r.ok) throw new Error(`${vista}: ${r.status} ${await r.text()}`);
+    if (!r.ok) throw new Error(`${ruta}: ${r.status} ${await r.text()}`);
     const lote = await r.json();
     filas.push(...lote);
     if (lote.length < 1000) break;
@@ -240,134 +407,280 @@ async function api(vista, query) {
   return filas;
 }
 const numerico = (filas, cols) => filas.map(f => { for (const c of cols) if (f[c] != null) f[c] = Number(f[c]); return f; });
+const NUM_DIA = ['precio', 'precio_lista', 'precio_kg', 'gramaje_g', 'precio_anterior', 'var_pct', 'sugerido', 'dif_sugerido_pct'];
 
-async function cargar() {
-  if (DEMO) return demo();
-  const desde60 = masDias(hoyAR(), -60), desde14 = masDias(hoyAR(), -14);
-  const [hoy, indice, alertas] = await Promise.all([
-    api('v_precios_hoy', 'select=*'),
-    api('v_indice_retailer', `select=*&fecha=gte.${desde60}&order=fecha`),
-    api('v_alertas', `select=*&fecha=gte.${desde14}&order=fecha.desc,id.desc`),
-  ]);
-  S.hoy = numerico(hoy, ['precio', 'precio_lista', 'precio_kg', 'gramaje_g', 'precio_anterior', 'var_pct']);
-  S.indice = numerico(indice, ['indice', 'skus_comparables']);
-  S.alertas = numerico(alertas, ['precio_anterior', 'precio_nuevo', 'variacion_pct']);
-  S.fecha = S.hoy[0]?.fecha || null;
-}
-async function historial(ean) {
-  if (DEMO) return S.demoHist.filter(f => f.ean === ean);
-  return numerico(await api('v_precios', `select=fecha,retailer_id,retailer,precio,en_promo,disponible,promo_texto&ean=eq.${encodeURIComponent(ean)}&fecha=gte.${masDias(hoyAR(), -90)}&order=fecha`), ['precio']);
-}
+const REAL = {
+  async base() {
+    try {
+      const [zonas, fechas] = await Promise.all([
+        api('zonas', 'select=id,nombre,orden,activo&order=orden'),
+        api('v_fechas', 'select=fecha,zona_id&order=fecha.desc'),
+      ]);
+      return { zonas, fechas };
+    } catch (e) {            // todavía no se corrió sql/03_mejoras_v2.sql
+      S.legacy = true;
+      return { zonas: [{ id: 'web', nombre: 'Web (sin zona)' }], fechas: [] };
+    }
+  },
+  async dia(fecha, zona) {
+    if (S.legacy) {
+      const filas = numerico(await api('v_precios_hoy', 'select=*'), NUM_DIA);
+      return filas.map(f => ({ zona_id: 'web', alcance: 'zona', tipo_marca: 'pepsico', tamano: null, sugerido: null, dif_sugerido_pct: null, ...f }));
+    }
+    return numerico(await api('rpc/precios_del_dia', `p_zona=${zona}${fecha ? '&p_fecha=' + fecha : ''}`), NUM_DIA);
+  },
+  async indice(zona, hasta) {
+    const desde = masDias(hasta, -60);
+    const filas = S.legacy ? await api('v_indice_retailer', `select=*&fecha=gte.${desde}&order=fecha`)
+      : await api('rpc/indice_por_zona', `p_zona=${zona}&p_desde=${desde}`);
+    return numerico(filas, ['indice', 'skus_comparables']).filter(x => x.fecha <= hasta);
+  },
+  async alertas(zona, hasta) {
+    const q = `select=*&fecha=gte.${masDias(hasta, -14)}&fecha=lte.${hasta}&order=fecha.desc,id.desc` + (S.legacy ? '' : `&zona_id=in.(${zona},web)`);
+    return numerico(await api('v_alertas', q), ['precio_anterior', 'precio_nuevo', 'variacion_pct']);
+  },
+  async porZona(fecha) {
+    if (S.legacy) return [];
+    return numerico(await api('v_precios', `select=retailer_id,zona_id,ean,precio,tipo_marca,marca,segmento&fecha=eq.${fecha}&precio=gt.0`), ['precio']);
+  },
+  async historial(ean, zona, hasta) {
+    const q = `select=fecha,retailer_id,zona_id,precio,en_promo,disponible&ean=eq.${encodeURIComponent(ean)}&fecha=gte.${masDias(hasta, -90)}&fecha=lte.${hasta}&order=fecha` + (S.legacy ? '' : `&zona_id=in.(${zona},web)`);
+    return numerico(await api('v_precios', q), ['precio']);
+  },
+  async catalogo() {
+    if (S.legacy) return [];
+    return api('v_productos', 'select=ean,producto,marca,gramaje_g&tipo_marca=eq.pepsico');
+  },
+};
 
-// ---------------- demo ----------------
-function demo() {
-  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const P = [
-    ["Lay's", 'Clásicas', 40, 'Papas fritas'], ["Lay's", 'Clásicas', 85, 'Papas fritas'], ["Lay's", 'Clásicas', 134, 'Papas fritas'], ["Lay's", 'Clásicas', 230, 'Papas fritas'],
-    ["Lay's", 'Jamón Serrano', 77, 'Papas fritas'], ["Lay's", 'Barbacoa', 77, 'Papas fritas'], ["Lay's", 'Rústicas Sal Marina', 85, 'Papas fritas'], ["Lay's", 'Asado', 77, 'Papas fritas'],
-    ['Doritos', 'Queso', 40, 'Nachos'], ['Doritos', 'Queso', 77, 'Nachos'], ['Doritos', 'Queso', 129, 'Nachos'], ['Doritos', 'Queso', 200, 'Nachos'],
-    ['Doritos', 'Dinamita', 45, 'Nachos'], ['Doritos', 'Sweet Chili', 74, 'Nachos'], ['Tostitos', 'Original', 180, 'Nachos'],
-    ['Cheetos', 'Queso', 41, 'Snacks de maíz'], ['Cheetos', 'Queso', 98, 'Snacks de maíz'], ['3D', 'Queso', 70, 'Snacks de maíz'], ['3D', 'Pizza', 70, 'Snacks de maíz'],
-    ['Twistos', 'Jamón', 113, 'Galletitas/Tostadas'], ['Twistos', 'Queso', 113, 'Galletitas/Tostadas'], ['Pehuamar', 'Maní Salado', 120, 'Maní'], ['Pehuamar', 'Maní Salado', 350, 'Maní'], ['Pehuamar', 'Papas Clásicas', 120, 'Papas fritas'],
+// =====================================================================
+//  Datos: demostración (misma interfaz que REAL)
+// =====================================================================
+const DEMO_DB = (() => {
+  let hist = null, sug = {};
+  const ZONAS = [
+    { id: 'web', nombre: 'Web (sin zona)', orden: 0 }, { id: 'caba', nombre: 'CABA', orden: 1 }, { id: 'gba', nombre: 'GBA (Pilar)', orden: 2 },
+    { id: 'cordoba', nombre: 'Córdoba', orden: 4 }, { id: 'mendoza', nombre: 'Mendoza', orden: 6 }, { id: 'neuquen', nombre: 'Neuquén', orden: 7 },
   ];
-  const sesgo = { carrefour: 1.0, jumbo: 1.07, disco: 1.06, vea: 0.99, dia: 0.95, changomas: 0.97, coto: 1.02 };
-  const dias = 30, fin = hoyAR(), hist = [];
-  P.forEach(([marca, variedad, g, seg], i) => {
-    const ean = '77903109' + String(10000 + i * 37).padStart(5, '0');
-    const baseKg = 42000 + rnd() * 16000, base = baseKg * g / 1000;
-    for (const r of RET) {
-      if (rnd() < 0.12) continue;
-      let p = base * sesgo[r.id] * (0.97 + rnd() * 0.06);
-      for (let d = dias - 1; d >= 0; d--) {
-        const fecha = masDias(fin, -d);
-        if (rnd() < 0.03) p *= 1 + (0.03 + rnd() * 0.06);
-        const promo = rnd() < 0.10;
-        const precio = Math.round((promo ? p * 0.8 : p) / 10) * 10;
-        const disp = rnd() > 0.03;
-        hist.push({ fecha, retailer_id: r.id, retailer: r.nombre, ean, producto: `${marca} ${variedad} ${g}g`, marca, variedad, segmento: seg, gramaje_g: g,
-          precio: disp ? precio : null, precio_lista: Math.round(p / 10) * 10, en_promo: promo, promo_texto: promo ? (rnd() < .5 ? '-20%' : '2do al 70%') : null,
-          disponible: disp, precio_kg: disp ? Math.round(precio / g * 1000) : null, url: '#' });
+  const fZona = { web: 1, caba: 1.0, gba: 0.985, cordoba: 0.96, mendoza: 1.02, neuquen: 1.055 };
+  const REGIONALIZA = { carrefour: ['caba', 'gba', 'cordoba', 'mendoza', 'neuquen'], changomas: ['caba', 'gba', 'cordoba', 'mendoza', 'neuquen'], dia: ['caba', 'gba', 'cordoba'] };
+  const TAM = (g) => g < 60 ? 'Single' : g <= 120 ? 'Medium bag' : g <= 300 ? 'Large bag' : 'XL / Familiar';
+  function generar() {
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const P = [
+      ["Lay's", 'Clásicas', 40, 'Papas', 'pepsico'], ["Lay's", 'Clásicas', 85, 'Papas', 'pepsico'], ["Lay's", 'Clásicas', 134, 'Papas', 'pepsico'], ["Lay's", 'Clásicas', 230, 'Papas', 'pepsico'],
+      ["Lay's", 'Jamón Serrano', 77, 'Papas', 'pepsico'], ["Lay's", 'Barbacoa', 77, 'Papas', 'pepsico'], ["Lay's", 'Rústicas Sal Marina', 85, 'Papas', 'pepsico'],
+      ['Doritos', 'Queso', 40, 'Tortilla', 'pepsico'], ['Doritos', 'Queso', 77, 'Tortilla', 'pepsico'], ['Doritos', 'Queso', 129, 'Tortilla', 'pepsico'], ['Doritos', 'Queso', 200, 'Tortilla', 'pepsico'],
+      ['Doritos', 'Sweet Chili', 74, 'Tortilla', 'pepsico'], ['Tostitos', 'Original', 180, 'Tortilla', 'pepsico'],
+      ['Cheetos', 'Queso', 41, 'Extruidos', 'pepsico'], ['Cheetos', 'Queso', 98, 'Extruidos', 'pepsico'], ['3D', 'Queso', 70, 'Extruidos', 'pepsico'], ['3D', 'Pizza', 70, 'Extruidos', 'pepsico'],
+      ['Twistos', 'Jamón', 113, 'Galletitas/Tostadas', 'pepsico'], ['Pehuamar', 'Maní Salado', 120, 'Maní', 'pepsico'], ['Pehuamar', 'Maní Salado', 350, 'Maní', 'pepsico'], ['Pehuamar', 'Papas Clásicas', 120, 'Papas', 'pepsico'],
+      ['5 Hispanos', 'Clásicas', 100, 'Papas', 'competencia', .78], ['5 Hispanos', 'Clásicas', 250, 'Papas', 'competencia', .74], ['5 Hispanos', 'Tortillas', 150, 'Tortilla', 'competencia', .7],
+      ['Pringles', 'Original', 104, 'Papas', 'competencia', 1.35], ['Pringles', 'Queso', 109, 'Papas', 'competencia', 1.35],
+      ['Krachitos', 'Papas Clásicas', 120, 'Papas', 'competencia', .82], ['Krachitos', 'Conitos', 110, 'Extruidos', 'competencia', .8], ['Krachitos', 'Maní Salado', 150, 'Maní', 'competencia', .85],
+      ['Saladix', 'Calabresa', 100, 'Extruidos', 'competencia', .9], ['Saladix', 'Jamón', 100, 'Extruidos', 'competencia', .9],
+      ['Carrefour (MP)', 'Papas Clásicas', 150, 'Papas', 'marca_propia', .62, 'carrefour'], ['Carrefour (MP)', 'Nachos', 200, 'Tortilla', 'marca_propia', .6, 'carrefour'],
+      ['Día (MP)', 'Papas Clásicas', 100, 'Papas', 'marca_propia', .58, 'dia'], ['Coto (MP)', 'Maní Salado', 200, 'Maní', 'marca_propia', .65, 'coto'],
+    ];
+    const sesgo = { carrefour: 1.0, jumbo: 1.07, disco: 1.06, vea: 0.99, dia: 0.95, changomas: 0.97, coto: 1.02, laanonima: 1.04 };
+    const dias = 30, fin = hoyAR(), h = [];
+    P.forEach(([marca, variedad, g, seg, tipo, rel = 1, solo], i) => {
+      const ean = '77903109' + String(10000 + i * 37).padStart(5, '0');
+      const baseKg = (42000 + rnd() * 16000) * rel, base = baseKg * g / 1000;
+      if (tipo === 'pepsico') sug[ean] = Math.round(base * 1.05 / 10) * 10;
+      for (const r of RET) {
+        if (solo ? r.id !== solo : rnd() < (tipo === 'pepsico' ? 0.1 : 0.35)) continue;
+        for (const z of ['web', ...(REGIONALIZA[r.id] || [])]) {
+          let p = base * sesgo[r.id] * fZona[z] * (0.98 + rnd() * 0.04);
+          for (let d = dias - 1; d >= 0; d--) {
+            const fecha = masDias(fin, -d);
+            if (rnd() < 0.03) p *= 1 + (0.03 + rnd() * 0.06);
+            const promo = rnd() < 0.09, disp = rnd() > 0.03;
+            const precio = Math.round((promo ? p * 0.8 : p) / 10) * 10;
+            h.push({ fecha, retailer_id: r.id, retailer: r.nombre, zona_id: z, ean, producto: `${marca.replace(' (MP)', '')} ${variedad} ${g}g`, marca, tipo_marca: tipo, variedad, segmento: seg, gramaje_g: g, tamano: TAM(g),
+              precio: disp ? precio : null, precio_lista: Math.round(p / 10) * 10, en_promo: promo, promo_texto: promo ? (rnd() < .5 ? '-20%' : '2do al 70%') : null,
+              disponible: disp, precio_kg: disp ? Math.round(precio / g * 1000) : null, url: '#' });
+          }
+        }
       }
-    }
-  });
-  S.demoHist = hist;
-  const prev = masDias(fin, -1);
-  const key = (f) => f.retailer_id + '|' + f.ean;
-  const ayer = Object.fromEntries(hist.filter(f => f.fecha === prev).map(f => [key(f), f]));
-  S.hoy = hist.filter(f => f.fecha === fin).map(f => {
-    const a = ayer[key(f)]; return { ...f, precio_anterior: a?.precio ?? null, var_pct: a?.precio && f.precio ? +(((f.precio / a.precio) - 1) * 100).toFixed(2) : null };
-  });
-  // índice
-  const porDia = {};
-  for (const f of hist) if (f.precio) ((porDia[f.fecha] ??= {})[f.ean] ??= []).push(f);
-  S.indice = [];
-  for (const [fecha, eans] of Object.entries(porDia)) {
-    const acc = {};
-    for (const filas of Object.values(eans)) {
-      if (filas.length < 3) continue;
-      const ps = filas.map(f => f.precio).sort((a, b) => a - b), m = ps.length % 2 ? ps[(ps.length - 1) / 2] : (ps[ps.length / 2 - 1] + ps[ps.length / 2]) / 2;
-      for (const f of filas) (acc[f.retailer_id] ??= []).push(f.precio / m);
-    }
-    for (const [rid, v] of Object.entries(acc)) S.indice.push({ fecha, retailer_id: rid, retailer: RET_BY[rid].nombre, indice: +(v.reduce((a, b) => a + b, 0) / v.length * 100).toFixed(1), skus_comparables: v.length });
+    });
+    hist = h;
   }
-  S.indice.sort((a, b) => a.fecha.localeCompare(b.fecha));
-  // alertas (últimos 14 días)
-  S.alertas = [];
-  const porClave = {};
-  for (const f of hist) (porClave[key(f)] ??= []).push(f);
-  for (const serie of Object.values(porClave)) for (let i = 1; i < serie.length; i++) {
-    const a = serie[i - 1], h = serie[i]; if (h.fecha < masDias(fin, -14)) continue;
-    const base = { fecha: h.fecha, retailer_id: h.retailer_id, retailer: h.retailer, ean: h.ean, nombre: h.producto, marca: h.marca, precio_anterior: a.precio, precio_nuevo: h.precio };
-    if (a.precio && h.precio && !a.en_promo && !h.en_promo && Math.abs(h.precio / a.precio - 1) >= .01) S.alertas.push({ ...base, tipo: h.precio > a.precio ? 'suba' : 'baja', variacion_pct: +((h.precio / a.precio - 1) * 100).toFixed(2) });
-    if (h.en_promo && !a.en_promo) S.alertas.push({ ...base, tipo: 'promo_nueva', detalle: h.promo_texto });
-    if (a.disponible && !h.disponible) S.alertas.push({ ...base, tipo: 'quiebre', detalle: 'Sin stock online' });
-  }
-  S.alertas.sort((a, b) => b.fecha.localeCompare(a.fecha));
-  S.fecha = fin;
-}
-
-// ---------------- filtros ----------------
-function filtradas() {
-  const m = $('#fMarca').value, s = $('#fSegmento').value, q = $('#fBuscar').value.trim().toLowerCase(), promo = $('#fPromo').checked;
-  return S.hoy.filter(f => S.filtroRet.has(f.retailer_id) && (!m || f.marca === m) && (!s || f.segmento === s)
-    && (!q || (f.producto || '').toLowerCase().includes(q) || (f.ean || '').includes(q)) && (!promo || f.en_promo));
-}
-function armarFiltros() {
-  const opciones = (col) => [...new Set(S.hoy.map(f => f[col]).filter(Boolean))].sort();
-  for (const [sel, col] of [['#fMarca', 'marca'], ['#fSegmento', 'segmento']])
-    $(sel).insertAdjacentHTML('beforeend', opciones(col).map(v => `<option>${esc(v)}</option>`).join(''));
-  const presentes = new Set(S.hoy.map(f => f.retailer_id));
-  $('#chips').innerHTML = RET.filter(r => presentes.has(r.id)).map(r => `<span class="chip" data-r="${r.id}" role="button" aria-pressed="true"><span class="dot" style="background:var(${r.c})"></span>${r.nombre}</span>`).join('');
-  $('#chips').onclick = (e) => {
-    const c = e.target.closest('.chip'); if (!c) return;
-    const id = c.dataset.r;
-    S.filtroRet.has(id) ? S.filtroRet.delete(id) : S.filtroRet.add(id);
-    c.classList.toggle('off', !S.filtroRet.has(id)); c.setAttribute('aria-pressed', S.filtroRet.has(id));
-    pintar();
+  const delDia = (fecha, zona) => {
+    const conZona = new Set(hist.filter(f => f.fecha === fecha && f.zona_id === zona).map(f => f.retailer_id));
+    return hist.filter(f => f.fecha === fecha && (f.zona_id === zona || (f.zona_id === 'web' && !conZona.has(f.retailer_id))));
   };
-  for (const el of ['#fMarca', '#fSegmento', '#fBuscar', '#fPromo']) $(el).addEventListener('input', pintar);
+  return {
+    async base() { generar(); const fs = [...new Set(hist.map(f => f.fecha))].sort().reverse(); return { zonas: ZONAS, fechas: fs.flatMap(fecha => ZONAS.map(z => ({ fecha, zona_id: z.id }))) }; },
+    async dia(fecha, zona) {
+      fecha = fecha || hist.at(-1).fecha;
+      const prev = masDias(fecha, -1), k = (f) => f.retailer_id + '|' + f.zona_id + '|' + f.ean;
+      const ayer = Object.fromEntries(hist.filter(f => f.fecha === prev).map(f => [k(f), f]));
+      return delDia(fecha, zona).map(f => { const a = ayer[k(f)], s = sug[f.ean] ?? null; return { ...f, alcance: f.zona_id === zona ? 'zona' : 'web',
+        precio_anterior: a?.precio ?? null, var_pct: a?.precio && f.precio ? +((f.precio / a.precio - 1) * 100).toFixed(2) : null,
+        sugerido: s, dif_sugerido_pct: s && f.precio ? +((f.precio / s - 1) * 100).toFixed(2) : null }; });
+    },
+    async indice(zona, hasta) {
+      const out = [];
+      for (const fecha of [...new Set(hist.map(f => f.fecha))].filter(f => f <= hasta).sort()) {
+        const porEan = {}; for (const f of delDia(fecha, zona)) if (f.precio && f.tipo_marca === 'pepsico') (porEan[f.ean] ??= []).push(f);
+        const acc = {};
+        for (const filas of Object.values(porEan)) { if (filas.length < 3) continue;
+          const ps = filas.map(f => f.precio).sort((a, b) => a - b), m = ps.length % 2 ? ps[(ps.length - 1) / 2] : (ps[ps.length / 2 - 1] + ps[ps.length / 2]) / 2;
+          for (const f of filas) (acc[f.retailer_id] ??= []).push(f.precio / m); }
+        for (const [rid, v] of Object.entries(acc)) out.push({ fecha, retailer_id: rid, retailer: RET_BY[rid].nombre, indice: +(prom(v) * 100).toFixed(1), skus_comparables: v.length });
+      }
+      return out;
+    },
+    async alertas(zona, hasta) {
+      const out = [], porClave = {}, desde = masDias(hasta, -14);
+      for (const f of hist) if ((f.zona_id === zona || f.zona_id === 'web') && f.fecha <= hasta && f.fecha >= masDias(desde, -1)) (porClave[f.retailer_id + '|' + f.zona_id + '|' + f.ean] ??= []).push(f);
+      for (const serie of Object.values(porClave)) for (let i = 1; i < serie.length; i++) {
+        const a = serie[i - 1], h = serie[i]; if (h.fecha < desde) continue;
+        const base = { fecha: h.fecha, retailer_id: h.retailer_id, retailer: h.retailer, zona_id: h.zona_id, zona: ZONAS.find(z => z.id === h.zona_id).nombre, ean: h.ean, nombre: h.producto, marca: h.marca, tipo_marca: h.tipo_marca, precio_anterior: a.precio, precio_nuevo: h.precio };
+        if (a.precio && h.precio && !a.en_promo && !h.en_promo && Math.abs(h.precio / a.precio - 1) >= .01) out.push({ ...base, tipo: h.precio > a.precio ? 'suba' : 'baja', variacion_pct: +((h.precio / a.precio - 1) * 100).toFixed(2) });
+        if (h.en_promo && !a.en_promo) out.push({ ...base, tipo: 'promo_nueva', detalle: h.promo_texto });
+        if (a.disponible && !h.disponible) out.push({ ...base, tipo: 'quiebre', detalle: 'Sin stock online' });
+      }
+      return out.sort((a, b) => b.fecha.localeCompare(a.fecha));
+    },
+    async porZona(fecha) { return hist.filter(f => f.fecha === fecha && f.precio > 0); },
+    async historial(ean, zona, hasta) { return hist.filter(f => f.ean === ean && f.fecha <= hasta && (f.zona_id === zona || f.zona_id === 'web')); },
+    async catalogo() { const v = {}; for (const f of hist) if (f.tipo_marca === 'pepsico') v[f.ean] = { ean: f.ean, producto: f.producto, marca: f.marca, gramaje_g: f.gramaje_g }; return Object.values(v); },
+  };
+})();
+const DB = DEMO ? DEMO_DB : REAL;
+
+// =====================================================================
+//  Carga del día elegido
+// =====================================================================
+function fechasDeZona() { return [...new Set(S.fechas.filter(f => f.zona_id === S.zona || f.zona_id === 'web').map(f => f.fecha))].sort(); }
+
+async function cargarDia() {
+  $('#wrap').classList.add('busy');
+  try {
+    S.rows = await DB.dia(S.fecha, S.zona);
+    if (!S.fecha) S.fecha = S.rows[0]?.fecha || hoyAR();
+    if (!S.ultima) S.ultima = fechasDeZona().at(-1) || S.fecha;
+    aplicarSugLocal();
+    [S.indice, S.alertas] = await Promise.all([DB.indice(S.zona, S.fecha), DB.alertas(S.zona, S.fecha)]);
+    pintarEncabezado(); armarOpciones(); pintar();
+  } catch (e) {
+    $('#banner').hidden = false; $('#banner').innerHTML = `<b>No se pudieron cargar los datos.</b> ${esc(e.message)}`;
+  }
+  $('#wrap').classList.remove('busy');
 }
 
-// ---------------- KPIs ----------------
+// Sugeridos guardados sólo en este navegador (cuando no está conectado el workflow 6)
+function aplicarSugLocal() {
+  try { S.sugLocal = JSON.parse(localStorage.getItem('sugeridos_local') || 'null'); } catch (e) { S.sugLocal = null; }
+  if (!S.sugLocal || S.sugLocal.vigencia > S.fecha) return;
+  for (const f of S.rows) {
+    if (f.sugerido != null) continue;
+    const s = S.sugLocal.precios[f.ean + '|' + S.zona] ?? S.sugLocal.precios[f.ean + '|'];
+    if (s) { f.sugerido = s; f.dif_sugerido_pct = f.precio ? +((f.precio / s - 1) * 100).toFixed(2) : null; }
+  }
+}
+
+function pintarEncabezado() {
+  const z = S.zonas.find(z => z.id === S.zona);
+  const cadenas = new Set(S.rows.map(f => f.retailer_id)).size;
+  $('#sub').textContent = `${fLarga(S.fecha)} · ${z?.nombre || ''} · ${cadenas} cadenas`;
+  const fs = fechasDeZona();
+  $('#fFecha').value = S.fecha; $('#fFecha').min = fs[0] || ''; $('#fFecha').max = fs.at(-1) || '';
+  $('#btnPrev').disabled = !fs.some(f => f < S.fecha); $('#btnNext').disabled = !fs.some(f => f > S.fecha);
+  $('#btnHoy').disabled = S.fecha === S.ultima;
+  const b = $('#banner'), avisos = [];
+  if (DEMO) avisos.push('<b>Datos de demostración.</b> Completá SUPABASE_URL y SUPABASE_ANON_KEY al principio de este archivo para ver los precios reales.');
+  else if (S.legacy) avisos.push('<b>Falta actualizar la base.</b> Corré <code>sql/03_mejoras_v2.sql</code> en Supabase para habilitar zonas, competencia, precio sugerido y días anteriores. Mientras tanto se muestra el último día.');
+  else if (!S.rows.length) avisos.push('<b>No hay precios para ese día.</b> Elegí otra fecha o ejecutá el workflow "1 · Recolector" en n8n.');
+  if (S.fecha && S.ultima && S.fecha < S.ultima) avisos.push(`Estás viendo un día anterior (${fCorta(S.fecha)}). <a href="#" id="lnkHoy">Volver al último día</a>`);
+  if (S.zona !== 'web' && S.rows.length && !S.rows.some(f => f.alcance === 'zona')) avisos.push('Ninguna cadena publicó precio propio para esta zona ese día: se muestran los precios web generales.');
+  b.hidden = !avisos.length; b.innerHTML = avisos.join('<br>');
+  $('#lnkHoy')?.addEventListener('click', (e) => { e.preventDefault(); irA(S.ultima); });
+}
+function irA(fecha) { if (!fecha || fecha === S.fecha) return; S.fecha = fecha; S.porZona = null; cargarDia(); }
+
+// =====================================================================
+//  Filtros
+// =====================================================================
+function filtradas(ignorarTipo = false) {
+  const t = $('#fTipo').value, m = $('#fMarca').value, s = $('#fSegmento').value, tam = $('#fTamano').value,
+    q = sinTildes($('#fBuscar').value.trim()), promo = $('#fPromo').checked;
+  return S.rows.filter(f => S.filtroRet.has(f.retailer_id) && (ignorarTipo || !t || f.tipo_marca === t) && (!m || f.marca === m) && (!s || f.segmento === s)
+    && (!tam || f.tamano === tam) && (!q || sinTildes(f.producto).includes(q) || (f.ean || '').includes(q)) && (!promo || f.en_promo));
+}
+function armarOpciones() {
+  const t = $('#fTipo').value;
+  const base = S.rows.filter(f => !t || f.tipo_marca === t);
+  const llenar = (sel, col, todos, orden) => {
+    const el = $(sel), previo = el.value;
+    let vals = [...new Set(base.map(f => f[col]).filter(Boolean))].sort();
+    if (orden) vals.sort((a, b) => orden.indexOf(a) - orden.indexOf(b));
+    el.innerHTML = `<option value="">${todos}</option>` + vals.map(v => `<option>${esc(v)}</option>`).join('');
+    el.value = vals.includes(previo) ? previo : '';
+  };
+  llenar('#fMarca', 'marca', 'Todas'); llenar('#fSegmento', 'segmento', 'Todos los segmentos'); llenar('#fTamano', 'tamano', 'Todos los tamaños', ORDEN_TAM);
+  const presentes = new Set(S.rows.map(f => f.retailer_id));
+  $('#chips').innerHTML = RET.filter(r => presentes.has(r.id)).map(r => {
+    const web = S.zona !== 'web' && S.rows.some(f => f.retailer_id === r.id && f.alcance === 'web');
+    return `<span class="chip ${S.filtroRet.has(r.id) ? '' : 'off'}" data-r="${r.id}" role="button" aria-pressed="${S.filtroRet.has(r.id)}" title="${web ? 'Sin precio propio para la zona: se usa el precio web general' : ''}"><span class="dot" style="background:var(${r.c})"></span>${r.nombre}${web ? ' <small>web</small>' : ''}</span>`;
+  }).join('');
+}
+$('#chips').onclick = (e) => {
+  const c = e.target.closest('.chip'); if (!c) return;
+  const id = c.dataset.r;
+  S.filtroRet.has(id) ? S.filtroRet.delete(id) : S.filtroRet.add(id);
+  c.classList.toggle('off', !S.filtroRet.has(id)); c.setAttribute('aria-pressed', S.filtroRet.has(id));
+  pintar();
+};
+$('#fTipo').addEventListener('input', () => { armarOpciones(); pintar(); });
+for (const el of ['#fMarca', '#fSegmento', '#fTamano', '#fBuscar', '#fPromo', '#fPond']) $(el).addEventListener('input', pintar);
+$('#fZona').addEventListener('input', () => { S.zona = $('#fZona').value; const fs = fechasDeZona(); if (fs.length && !fs.includes(S.fecha)) S.fecha = fs.at(-1); cargarDia(); });
+$('#fFecha').addEventListener('change', () => {       // si ese día no tiene datos, va al día con datos más cercano hacia atrás
+  const v = $('#fFecha').value, fs = fechasDeZona(); if (!v) return;
+  irA(fs.includes(v) ? v : (fs.filter(f => f <= v).at(-1) || fs[0]));
+  $('#fFecha').value = S.fecha;
+});
+$('#btnPrev').onclick = () => irA(fechasDeZona().filter(f => f < S.fecha).at(-1));
+$('#btnNext').onclick = () => irA(fechasDeZona().find(f => f > S.fecha));
+$('#btnHoy').onclick = () => irA(S.ultima);
+$('#nav').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.vista = b.dataset.v;
+  for (const x of $('#nav').children) x.classList.toggle('on', x === b);
+  for (const v of document.querySelectorAll('.view')) v.classList.toggle('on', v.id === 'v-' + S.vista);
+  pintar();
+};
+
+// =====================================================================
+//  Resumen
+// =====================================================================
 function pintarKpis(filas) {
   const skus = new Set(filas.map(f => f.ean)).size;
   const promo = filas.length ? filas.filter(f => f.en_promo).length / filas.length * 100 : 0;
   const sinStock = filas.filter(f => !f.disponible).length;
   const idxHoy = S.indice.filter(x => x.fecha === S.fecha && S.filtroRet.has(x.retailer_id)).sort((a, b) => a.indice - b.indice);
-  const alHoy = S.alertas.filter(a => a.fecha === S.fecha && S.filtroRet.has(a.retailer_id));
+  const alHoy = S.alertas.filter(a => a.fecha === S.fecha && S.filtroRet.has(a.retailer_id) && enZona(a));
   const subas = alHoy.filter(a => a.tipo === 'suba').length, bajas = alHoy.filter(a => a.tipo === 'baja').length;
   const barata = idxHoy[0], cara = idxHoy.at(-1);
+  const conSug = filas.filter(f => f.dif_sugerido_pct != null && f.tipo_marca === 'pepsico');
+  const difProm = prom(conSug.map(f => f.dif_sugerido_pct));
   $('#kpis').innerHTML = [
-    [skus, 'Productos monitoreados', `${filas.length} precios en ${new Set(filas.map(f => f.retailer_id)).size} cadenas`],
+    [skus, 'Productos', `${filas.length} precios en ${new Set(filas.map(f => f.retailer_id)).size} cadenas`],
     [barata ? barata.retailer : '—', 'Cadena más barata', barata ? `Índice ${barata.indice} · más cara: ${cara.retailer} (${cara.indice})` : 'Hace falta 3+ cadenas por producto'],
-    [promo.toFixed(0) + '%', 'Precios en promo', `${filas.filter(f => f.en_promo).length} productos con oferta hoy`],
-    [`${subas} ▲ · ${bajas} ▼`, 'Cambios de precio hoy', 'vs. captura anterior'],
-    [sinStock, 'Sin stock online', 'productos publicados sin disponibilidad'],
+    [difProm == null ? '—' : pct(difProm), 'Vs. sugerido PepsiCo', difProm == null ? 'Cargá el precio sugerido para verlo' : `${conSug.filter(f => f.dif_sugerido_pct > 1).length} precios por encima · ${conSug.filter(f => f.dif_sugerido_pct < -1).length} por debajo`],
+    [promo.toFixed(0) + '%', 'Precios en promo', `${filas.filter(f => f.en_promo).length} con oferta ese día`],
+    [`${subas} ▲ · ${bajas} ▼`, 'Cambios de precio', 'vs. captura anterior'],
+    [sinStock, 'Sin stock online', 'publicados sin disponibilidad'],
   ].map(([v, l, d]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${esc(v)}</div><div class="d">${esc(d)}</div></div>`).join('');
 }
-
-// ---------------- gráfico índice ----------------
-function baseOpciones(extra = {}) {
+// una alerta cuenta si es de la zona elegida, o del precio web de una cadena que no tiene precio propio en la zona
+function enZona(a) {
+  if (S.zona === 'web' || !a.zona_id) return true;
+  if (a.zona_id === S.zona) return true;
+  return !S.rows.some(f => f.retailer_id === a.retailer_id && f.alcance === 'zona');
+}
+function baseOpciones() {
   return {
     responsive: true, maintainAspectRatio: false, animation: false,
     interaction: { mode: 'index', intersect: false },
@@ -379,21 +692,20 @@ function baseOpciones(extra = {}) {
       x: { grid: { display: false }, border: { color: css('--axis') }, ticks: { color: css('--muted'), maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
       y: { grid: { color: css('--grid') }, border: { display: false }, ticks: { color: css('--muted') } },
     },
-    ...extra,
   };
 }
 function pintarIndice() {
   const fechas = [...new Set(S.indice.map(x => x.fecha))].sort();
-  const etiquetas = fechas.map(f => new Date(f + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }));
   const datasets = RET.filter(r => S.filtroRet.has(r.id) && S.indice.some(x => x.retailer_id === r.id)).map(r => {
     const m = Object.fromEntries(S.indice.filter(x => x.retailer_id === r.id).map(x => [x.fecha, x.indice]));
-    return { label: r.nombre, data: fechas.map(f => m[f] ?? null), borderColor: css(r.c), backgroundColor: css(r.c), borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, tension: .25, spanGaps: true };
+    return { label: r.nombre, data: fechas.map(f => m[f] ?? null), borderColor: css(r.c), backgroundColor: css(r.c), borderWidth: 2, pointRadius: fechas.length < 3 ? 4 : 0, pointHoverRadius: 5, tension: .25, spanGaps: true };
   });
   charts.indice?.destroy();
+  $('#chIndice').parentElement.querySelector('.empty')?.remove();
   const opt = baseOpciones();
   opt.plugins.tooltip.callbacks = { label: (c) => ` ${c.dataset.label}: ${c.parsed.y?.toFixed(1)}` };
   charts.indice = new Chart($('#chIndice'), {
-    type: 'line', data: { labels: etiquetas, datasets }, options: opt,
+    type: 'line', data: { labels: fechas.map(fCorta), datasets }, options: opt,
     plugins: [{ id: 'base100', beforeDatasetsDraw(ch) {
       const y = ch.scales.y.getPixelForValue(100); if (y < ch.chartArea.top || y > ch.chartArea.bottom) return;
       const g = ch.ctx; g.save(); g.strokeStyle = css('--axis'); g.setLineDash([4, 4]); g.beginPath(); g.moveTo(ch.chartArea.left, y); g.lineTo(ch.chartArea.right, y); g.stroke(); g.restore();
@@ -401,111 +713,379 @@ function pintarIndice() {
   });
   if (!datasets.length) $('#chIndice').parentElement.insertAdjacentHTML('beforeend', '<div class="empty" style="position:absolute;inset:40% 0 auto;text-align:center">Todavía no hay suficientes datos (se necesitan productos en 3+ cadenas).</div>');
 }
-
-// ---------------- alertas ----------------
 function pintarAlertas() {
-  const base = S.alertas.filter(a => S.filtroRet.has(a.retailer_id) && (!$('#fMarca').value || a.marca === $('#fMarca').value));
-  const tipos = Object.keys(NOMBRE_TIPO).filter(t => base.some(a => a.tipo === t));
-  $('#alTabs').innerHTML = [['todas', `Todas (${base.length})`], ...tipos.map(t => [t, `${NOMBRE_TIPO[t]} (${base.filter(a => a.tipo === t).length})`])]
-    .map(([t, l]) => `<span class="tab ${S.tipoAl === t ? 'on' : ''}" data-t="${t}">${l}</span>`).join('');
-  $('#alTabs').onclick = (e) => { const t = e.target.closest('.tab'); if (t) { S.tipoAl = t.dataset.t; pintarAlertas(); } };
+  const t = $('#fTipo').value, m = $('#fMarca').value;
+  const base = S.alertas.filter(a => S.filtroRet.has(a.retailer_id) && enZona(a) && (!t || !a.tipo_marca || a.tipo_marca === t) && (!m || a.marca === m));
+  const tipos = Object.keys(NOMBRE_TIPO).filter(x => base.some(a => a.tipo === x));
+  if (S.tipoAl !== 'todas' && !tipos.includes(S.tipoAl)) S.tipoAl = 'todas';
+  $('#alTabs').innerHTML = [['todas', `Todas (${base.length})`], ...tipos.map(x => [x, `${NOMBRE_TIPO[x]} (${base.filter(a => a.tipo === x).length})`])]
+    .map(([x, l]) => `<span class="tab ${S.tipoAl === x ? 'on' : ''}" data-t="${x}">${l}</span>`).join('');
+  $('#alTabs').onclick = (e) => { const x = e.target.closest('.tab'); if (x) { S.tipoAl = x.dataset.t; pintarAlertas(); } };
   const lista = base.filter(a => S.tipoAl === 'todas' || a.tipo === S.tipoAl).slice(0, 200);
   $('#feed').innerHTML = lista.length ? lista.map(a => {
     const valor = a.variacion_pct != null && (a.tipo === 'suba' || a.tipo === 'baja')
       ? `<span class="${a.variacion_pct > 0 ? 'up' : 'down'}">${pct(a.variacion_pct)}</span><div class="m">${pesos(a.precio_anterior)} → ${pesos(a.precio_nuevo)}</div>`
       : `<span>${esc(a.detalle || pesos(a.precio_nuevo))}</span>`;
     return `<div class="al"><div class="ico" title="${NOMBRE_TIPO[a.tipo] || a.tipo}">${ICON[a.tipo] || '•'}</div>
-      <div><div class="t">${esc(a.nombre)}</div><div class="m">${esc(a.retailer)} · ${new Date(a.fecha + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })} · ${NOMBRE_TIPO[a.tipo] || a.tipo}</div></div>
+      <div><div>${esc(a.nombre)}</div><div class="m">${esc(a.retailer)}${a.zona && a.zona_id !== S.zona ? ' (precio web)' : ''} · ${fCorta(a.fecha)} · ${NOMBRE_TIPO[a.tipo] || a.tipo}</div></div>
       <div class="x">${valor}</div></div>`;
   }).join('') : '<div class="empty">Sin cambios en este período. Las alertas aparecen desde el segundo día de captura.</div>';
 }
 
-// ---------------- matriz ----------------
+// =====================================================================
+//  Sugerido vs. cadena
+// =====================================================================
+function retsVisibles() { return RET.filter(r => S.filtroRet.has(r.id) && S.rows.some(f => f.retailer_id === r.id)); }
+function tablaSegmentos(filas, clicable) {
+  const con = filas.filter(f => f.dif_sugerido_pct != null && f.tipo_marca === 'pepsico');
+  if (!con.length) return `<div class="empty">Todavía no hay precio sugerido cargado para estos productos. Usá el botón <b>⬆ Precio sugerido</b> de arriba para subir el Excel de PepsiCo.</div>`;
+  const rets = retsVisibles().filter(r => con.some(f => f.retailer_id === r.id));
+  const segs = [...new Set(con.map(f => f.segmento || 'Sin segmento'))].sort();
+  const celda = (fs) => { const v = prom(fs.map(f => f.dif_sugerido_pct)); return `<td>${celdaDiv(v, `${fs.length} precios`)}</td>`; };
+  const fila = (nombre, fs, cls = '') => `<tr class="${cls}" data-seg="${esc(nombre)}"><td class="prod">${clicable && cls ? `<span class="twist">${S.segSug === nombre ? '●' : '○'}</span>` : ''}${esc(nombre)}</td>
+    ${rets.map(r => celda(fs.filter(f => f.retailer_id === r.id))).join('')}${celda(fs)}<td class="na">${new Set(fs.map(f => f.ean)).size}</td></tr>`;
+  return `<div class="tbl-wrap"><table class="t"><thead><tr><th class="prod">Segmento</th>${rets.map(r => `<th>${r.nombre}</th>`).join('')}<th>Promedio</th><th>Productos</th></tr></thead>
+    <tbody>${segs.map(s => fila(s, con.filter(f => (f.segmento || 'Sin segmento') === s), clicable ? 'click' : 'x')).join('')}
+    ${fila('Total PepsiCo', con)}</tbody></table></div>`;
+}
+function pintarSugerido() {
+  const filas = filtradas(true).filter(f => f.tipo_marca === 'pepsico');
+  $('#sugSeg').innerHTML = tablaSegmentos(filas, true);
+  $('#sugSeg').onclick = (e) => { const tr = e.target.closest('tr.click'); if (!tr) return; S.segSug = S.segSug === tr.dataset.seg ? '' : tr.dataset.seg; pintarSugerido(); };
+  const rets = retsVisibles();
+  let prods = agrupar(filas.filter(f => !S.segSug || (f.segmento || 'Sin segmento') === S.segSug)).filter(p => p.min != null);
+  for (const p of prods) { p.sug = Object.values(p.celdas).find(c => c.sugerido != null)?.sugerido ?? null; p.dif = prom(Object.values(p.celdas).map(c => c.dif_sugerido_pct).filter(v => v != null)); }
+  prods.sort((a, b) => (b.sug != null) - (a.sug != null) || (b.dif ?? -1e9) - (a.dif ?? -1e9));
+  const conSug = prods.filter(p => p.sug != null).length;
+  $('#sugHint').textContent = `Cada celda muestra el precio de la cadena y, abajo, su diferencia contra el sugerido.${S.segSug ? ' Segmento: ' + S.segSug + '.' : ''}`;
+  $('#sugCont').textContent = `${conSug} de ${prods.length} productos con sugerido`;
+  $('#sugTabla').innerHTML = `<thead><tr><th class="prod">Producto</th><th class="l">Segmento</th><th>Sugerido</th>${rets.map(r => `<th>${r.nombre}</th>`).join('')}<th>Dif. promedio</th></tr></thead>
+  <tbody>${prods.map(p => `<tr class="click" data-ean="${esc(p.ean)}"><td class="prod" title="${esc(p.producto)} · EAN ${esc(p.ean)}">${esc(p.producto)}</td><td class="l">${esc(p.segmento || '')}</td>
+    <td class="sug">${p.sug != null ? '<b>' + pesos(p.sug) + '</b>' : '<span class="na">sin cargar</span>'}</td>${rets.map(r => {
+      const c = p.celdas[r.id];
+      if (!c) return '<td class="na">—</td>';
+      if (!c.disponible || !c.precio) return '<td class="na" title="Sin stock online">✕</td>';
+      return `<td style="${fondoDiv(c.dif_sugerido_pct)}">${pesos(c.precio)}${c.en_promo ? '<span class="tag promo">PROMO</span>' : ''}<span class="dif">${c.dif_sugerido_pct != null ? pct(c.dif_sugerido_pct) : '&nbsp;'}</span></td>`;
+    }).join('')}<td>${celdaDiv(p.dif)}</td></tr>`).join('')}</tbody>`;
+  $('#sugTabla').onclick = (e) => { const tr = e.target.closest('tr.click'); if (tr) abrirProducto(tr.dataset.ean); };
+}
+
+// =====================================================================
+//  Competencia
+// =====================================================================
+function pintarCompetencia() {
+  const m = $('#fMarca').value, s = $('#fSegmento').value, q = sinTildes($('#fBuscar').value.trim());
+  const base = S.rows.filter(f => S.filtroRet.has(f.retailer_id) && f.disponible && f.precio_kg > 0 && f.segmento && f.tamano && (!s || f.segmento === s));
+  const tams = ORDEN_TAM.filter(t => base.some(f => f.tamano === t));
+  $('#chipsTam').innerHTML = tams.map(t => `<span class="chip ${S.tamSel.has(t) ? 'sel' : ''}" data-t="${esc(t)}" role="button" aria-pressed="${S.tamSel.has(t)}">${esc(t)}</span>`).join('');
+  $('#chipsTam').onclick = (e) => { const c = e.target.closest('.chip'); if (!c) return; const t = c.dataset.t; S.tamSel.has(t) ? S.tamSel.delete(t) : S.tamSel.add(t); pintarCompetencia(); };
+  const simple = $('#fPond').value === 'simple';
+  // precio por kilo de un conjunto de filas: ponderado por presencia (cada cadena cuenta) o simple (cada producto cuenta 1)
+  const kg = (fs) => { if (!fs.length) return null; if (!simple) return prom(fs.map(f => f.precio_kg));
+    const porEan = {}; for (const f of fs) (porEan[f.ean] ??= []).push(f.precio_kg); return prom(Object.values(porEan).map(prom)); };
+  const grupos = {};
+  for (const f of base) if (S.tamSel.has(f.tamano)) (grupos[f.segmento + '|' + f.tamano] ??= []).push(f);
+  const claves = Object.keys(grupos).sort((a, b) => { const [sa, ta] = a.split('|'), [sb, tb] = b.split('|'); return sa.localeCompare(sb) || ORDEN_TAM.indexOf(ta) - ORDEN_TAM.indexOf(tb); });
+  const idx = (a, b) => a && b ? a / b * 100 : null;
+  const cIdx = (v) => v == null ? '<span class="na">—</span>' : `<span class="cell-div" style="${fondoDiv(v - 100, 40)}">${v.toFixed(0)}</span>`;
+  const n = (fs) => new Set(fs.map(f => f.ean)).size;
+  let html = '';
+  for (const k of claves) {
+    const fs = grupos[k], [seg, tam] = k.split('|');
+    const pe = fs.filter(f => f.tipo_marca === 'pepsico'), co = fs.filter(f => f.tipo_marca === 'competencia'), mp = fs.filter(f => f.tipo_marca === 'marca_propia');
+    if (!pe.length && !co.length) continue;
+    const abierto = S.abiertos.has(k);
+    html += `<tr class="click" data-k="${esc(k)}"><td class="prod"><span class="twist">${abierto ? '▾' : '▸'}</span><b>${esc(seg)}</b> · ${esc(tam)}</td>
+      <td>${pesos(kg(pe))}<span class="dif">${n(pe)} prod.</span></td><td>${pesos(kg(co))}<span class="dif">${n(co)} prod.</span></td><td>${pesos(kg(mp))}<span class="dif">${n(mp)} prod.</span></td>
+      <td>${cIdx(idx(kg(pe), kg(co)))}</td><td>${cIdx(idx(kg(pe), kg(mp)))}</td></tr>`;
+    if (!abierto) continue;
+    const marcas = [...new Set(fs.map(f => f.marca))].filter(x => (!m || x === m)).sort((a, b) => kg(fs.filter(f => f.marca === b)) - kg(fs.filter(f => f.marca === a)));
+    for (const marca of marcas) {
+      const fm = fs.filter(f => f.marca === marca), km = k + '|' + marca, ab2 = S.abiertos.has(km);
+      const ref = fm[0].tipo_marca === 'pepsico' ? null : idx(kg(pe), kg(fm));
+      html += `<tr class="sub click" data-k="${esc(km)}"><td class="prod" style="padding-left:28px"><span class="twist">${ab2 ? '▾' : '▸'}</span>${esc(marca)} <span class="tag tipo">${TIPO_MARCA[fm[0].tipo_marca] || ''}</span></td>
+        <td colspan="3" style="text-align:left">${pesos(kg(fm))}/kg · ${n(fm)} prod. · en ${new Set(fm.map(f => f.retailer_id)).size} cadenas</td>
+        <td colspan="2">${ref == null ? '' : 'PepsiCo = ' + ref.toFixed(0)}</td></tr>`;
+      if (!ab2) continue;
+      const porEan = {}; for (const f of fm) (porEan[f.ean] ??= []).push(f);
+      for (const [ean, fe] of Object.entries(porEan).filter(([, fe]) => !q || sinTildes(fe[0].producto).includes(q)).sort((a, b) => prom(b[1].map(f => f.precio_kg)) - prom(a[1].map(f => f.precio_kg)))) {
+        html += `<tr class="sub2 click" data-ean="${esc(ean)}"><td class="prod" style="padding-left:56px">${esc(fe[0].producto)}</td>
+          <td colspan="3" style="text-align:left">${pesos(prom(fe.map(f => f.precio_kg)))}/kg · precio ${pesos(Math.min(...fe.map(f => f.precio)))} a ${pesos(Math.max(...fe.map(f => f.precio)))} · ${fe.map(f => esc(RET_BY[f.retailer_id]?.nombre || f.retailer_id)).join(', ')}</td><td colspan="2"></td></tr>`;
+      }
+    }
+  }
+  $('#compTabla').innerHTML = html
+    ? `<thead><tr><th class="prod">Segmento · tamaño</th><th>PepsiCo $/kg</th><th>Competencia $/kg</th><th>Marcas propias $/kg</th><th title="PepsiCo ÷ competencia × 100">Índice vs. competencia</th><th title="PepsiCo ÷ marcas propias × 100">Índice vs. marcas propias</th></tr></thead><tbody>${html}</tbody>`
+    : `<tbody><tr><td class="l"><div class="empty">Todavía no hay productos de la competencia con segmento y gramaje para este día. Aparecen después de que corran el Recolector y el Normalizador con las marcas nuevas.</div></td></tr></tbody>`;
+  $('#compTabla').onclick = (e) => {
+    const tr = e.target.closest('tr.click'); if (!tr) return;
+    if (tr.dataset.ean) return abrirProducto(tr.dataset.ean);
+    const k = tr.dataset.k; S.abiertos.has(k) ? S.abiertos.delete(k) : S.abiertos.add(k); pintarCompetencia();
+  };
+}
+
+// =====================================================================
+//  Comparar zonas
+// =====================================================================
+async function datosPorZona() {
+  if (S.porZona && S.porZonaClave === S.fecha) return S.porZona;
+  S.porZona = await DB.porZona(S.fecha); S.porZonaClave = S.fecha;
+  return S.porZona;
+}
+async function pintarZonas() {
+  const el = $('#zonasTabla');
+  if (S.legacy) { el.innerHTML = '<tbody><tr><td class="l"><div class="empty">Disponible después de correr sql/03_mejoras_v2.sql.</div></td></tr></tbody>'; return; }
+  if (!S.porZona || S.porZonaClave !== S.fecha) el.innerHTML = '<tbody><tr><td class="l"><div class="empty">Cargando zonas…</div></td></tr></tbody>';
+  const t = $('#fTipo').value, m = $('#fMarca').value, s = $('#fSegmento').value;
+  const todas = (await datosPorZona()).filter(f => (!t || f.tipo_marca === t) && (!m || f.marca === m) && (!s || f.segmento === s));
+  const web = {}; for (const f of todas) if (f.zona_id === 'web') web[f.retailer_id + '|' + f.ean] = f.precio;
+  const acc = {};
+  for (const f of todas) { if (f.zona_id === 'web') continue; const w = web[f.retailer_id + '|' + f.ean]; if (!w) continue; (acc[f.retailer_id + '|' + f.zona_id] ??= []).push((f.precio / w - 1) * 100); }
+  const zonas = S.zonas.filter(z => z.id !== 'web' && Object.keys(acc).some(k => k.endsWith('|' + z.id)));
+  const rets = RET.filter(r => S.filtroRet.has(r.id) && Object.keys(acc).some(k => k.startsWith(r.id + '|')));
+  if (!zonas.length) { el.innerHTML = '<tbody><tr><td class="l"><div class="empty">Ese día no hay precios por zona. Se cargan cuando corre el Recolector v2 (workflow 1) con zonas activas.</div></td></tr></tbody>'; return; }
+  el.innerHTML = `<thead><tr><th class="prod">Cadena</th>${zonas.map(z => `<th>${esc(z.nombre)}</th>`).join('')}</tr></thead>
+  <tbody>${rets.map(r => `<tr><td class="prod"><span class="chip" style="border:0;padding:0;background:none;cursor:default"><span class="dot" style="background:var(${r.c})"></span>${r.nombre}</span></td>${zonas.map(z => {
+    const v = acc[r.id + '|' + z.id]; return `<td>${v ? celdaDiv(prom(v), `${v.length} productos comparados`) : '<span class="na">—</span>'}</td>`; }).join('')}</tr>`).join('')}
+  <tr><td class="prod"><b>Promedio de cadenas</b></td>${zonas.map(z => { const v = rets.map(r => acc[r.id + '|' + z.id]).filter(Boolean).map(prom); return `<td>${v.length ? celdaDiv(prom(v)) : ''}</td>`; }).join('')}</tr></tbody>`;
+}
+
+// =====================================================================
+//  Matriz
+// =====================================================================
 function agrupar(filas) {
   const g = {};
   for (const f of filas) {
-    const p = (g[f.ean] ??= { ean: f.ean, producto: f.producto, marca: f.marca, segmento: f.segmento, gramaje_g: f.gramaje_g, celdas: {} });
+    const p = (g[f.ean] ??= { ean: f.ean, producto: f.producto, marca: f.marca, tipo_marca: f.tipo_marca, segmento: f.segmento, tamano: f.tamano, gramaje_g: f.gramaje_g, celdas: {} });
     p.celdas[f.retailer_id] = f;
   }
   return Object.values(g).map(p => {
-    const ps = Object.values(p.celdas).map(c => c.precio).filter(Boolean);
+    const ps = Object.values(p.celdas).filter(c => c.disponible).map(c => c.precio).filter(Boolean);
     p.min = ps.length ? Math.min(...ps) : null; p.max = ps.length ? Math.max(...ps) : null;
     p.brecha = ps.length > 1 ? (p.max / p.min - 1) * 100 : null;
+    p.sug = Object.values(p.celdas).find(c => c.sugerido != null)?.sugerido ?? null;
     return p;
   });
 }
 function pintarMatriz(filas) {
-  const rets = RET.filter(r => S.filtroRet.has(r.id) && S.hoy.some(f => f.retailer_id === r.id));
+  const rets = retsVisibles();
   let prods = agrupar(filas).filter(p => p.min != null);   // oculta productos sin precio en ninguna cadena
+  const haySug = prods.some(p => p.sug != null);
   const { col, asc } = S.orden;
-  const val = (p) => col === 'marca' ? (p.marca || '') + (p.producto || '') : col === 'producto' ? p.producto || '' : col === 'brecha' ? p.brecha ?? -1 : p.celdas[col]?.precio ?? Infinity;
+  const val = (p) => col === 'marca' ? (p.marca || '') + (p.producto || '') : col === 'producto' ? p.producto || '' : col === 'brecha' ? p.brecha ?? -1 : col === 'sug' ? p.sug ?? Infinity : p.celdas[col]?.precio ?? Infinity;
   prods.sort((a, b) => { const x = val(a), y = val(b); return (x > y ? 1 : x < y ? -1 : 0) * (asc ? 1 : -1); });
   const flecha = (c) => S.orden.col === c ? (S.orden.asc ? ' ↑' : ' ↓') : '';
-  $('#matriz').innerHTML = `<thead><tr><th data-c="producto">Producto${flecha('producto')}</th><th data-c="marca">Marca${flecha('marca')}</th>${rets.map(r => `<th data-c="${r.id}">${r.nombre}${flecha(r.id)}</th>`).join('')}<th data-c="brecha" title="Diferencia entre la cadena más cara y la más barata">Brecha${flecha('brecha')}</th></tr></thead>
-  <tbody>${prods.map(p => `<tr data-ean="${esc(p.ean)}"><td class="prod" title="${esc(p.producto)} · EAN ${esc(p.ean)}">${esc(p.producto)}</td><td>${esc(p.marca || '')}</td>${rets.map(r => {
+  $('#matriz').innerHTML = `<thead><tr><th class="prod" data-c="producto">Producto${flecha('producto')}</th><th class="l" data-c="marca">Marca${flecha('marca')}</th>${haySug ? `<th data-c="sug">Sugerido${flecha('sug')}</th>` : ''}${rets.map(r => `<th data-c="${r.id}">${r.nombre}${flecha(r.id)}</th>`).join('')}<th data-c="brecha" title="Diferencia entre la cadena más cara y la más barata">Brecha${flecha('brecha')}</th></tr></thead>
+  <tbody>${prods.map(p => `<tr class="click" data-ean="${esc(p.ean)}"><td class="prod" title="${esc(p.producto)} · EAN ${esc(p.ean)}">${esc(p.producto)}</td><td class="l">${esc(p.marca || '')}</td>${haySug ? `<td class="sug">${p.sug != null ? pesos(p.sug) : '<span class="na">—</span>'}</td>` : ''}${rets.map(r => {
     const c = p.celdas[r.id];
-    if (!c) return '<td class="p na">—</td>';
-    if (!c.disponible || !c.precio) return '<td class="p na" title="Sin stock online">✕</td>';
+    if (!c) return '<td class="na">—</td>';
+    if (!c.disponible || !c.precio) return '<td class="na" title="Sin stock online">✕</td>';
     const cls = p.min !== p.max ? (c.precio === p.min ? 'low' : c.precio === p.max ? 'high' : '') : '';
     const v = c.var_pct ? `<span class="var ${c.var_pct > 0 ? 'up' : 'down'}">${c.var_pct > 0 ? '▲' : '▼'}</span>` : '';
-    return `<td class="p ${cls}" title="${c.en_promo ? 'Promo: ' + esc(c.promo_texto || '') + ' · ' : ''}${c.precio_kg ? pesos(c.precio_kg) + '/kg' : ''}${c.var_pct ? ' · ' + pct(c.var_pct) + ' vs. anterior' : ''}">${pesos(c.precio)}${c.en_promo ? '<span class="tag promo">PROMO</span>' : ''}${v}</td>`;
-  }).join('')}<td class="p">${p.brecha != null ? pct(p.brecha, 0).replace('+', '') : '<span class="na">—</span>'}</td></tr>`).join('')}</tbody>`;
+    const tit = [c.alcance === 'web' && S.zona !== 'web' ? 'Precio web general (sin precio propio en la zona)' : '', c.en_promo ? 'Promo: ' + (c.promo_texto || '') : '', c.precio_kg ? pesos(c.precio_kg) + '/kg' : '', c.var_pct ? pct(c.var_pct) + ' vs. anterior' : '', c.dif_sugerido_pct != null ? pct(c.dif_sugerido_pct) + ' vs. sugerido' : ''].filter(Boolean).join(' · ');
+    return `<td class="${cls}" title="${esc(tit)}">${pesos(c.precio)}${c.en_promo ? '<span class="tag promo">PROMO</span>' : ''}${c.alcance === 'web' && S.zona !== 'web' ? '<span class="tag web">web</span>' : ''}${v}</td>`;
+  }).join('')}<td>${p.brecha != null ? pct(p.brecha, 0).replace('+', '') : '<span class="na">—</span>'}</td></tr>`).join('')}</tbody>`;
   $('#contador').textContent = `${prods.length} productos`;
-  $('#matriz thead').onclick = (e) => { const th = e.target.closest('th'); if (!th) return; const c = th.dataset.c; S.orden = { col: c, asc: S.orden.col === c ? !S.orden.asc : true }; pintarMatriz(filtradas()); };
-  $('#matriz tbody').onclick = (e) => { const tr = e.target.closest('tr'); if (tr) abrirProducto(tr.dataset.ean); };
+  $('#matriz').querySelector('thead').onclick = (e) => { const th = e.target.closest('th'); if (!th) return; const c = th.dataset.c; S.orden = { col: c, asc: S.orden.col === c ? !S.orden.asc : true }; pintarMatriz(filtradas()); };
+  $('#matriz').querySelector('tbody').onclick = (e) => { const tr = e.target.closest('tr'); if (tr) abrirProducto(tr.dataset.ean); };
 }
 
-// ---------------- detalle de producto ----------------
+// =====================================================================
+//  Detalle de producto
+// =====================================================================
 const dlg = $('#dlg');
 async function abrirProducto(ean) {
-  const p = S.hoy.find(f => f.ean === ean);
+  const hoy = S.rows.filter(f => f.ean === ean).sort((a, b) => (a.precio ?? 1e12) - (b.precio ?? 1e12));
+  const p = hoy[0];
   $('#dlgTit').textContent = p?.producto || ean;
-  $('#dlgSub').textContent = `EAN ${ean}${p?.gramaje_g ? ' · ' + p.gramaje_g + ' g' : ''}${p?.marca ? ' · ' + p.marca : ''}`;
-  $('#dlgTabla').innerHTML = '<div class="empty">Cargando historial…</div>';
+  $('#dlgSub').textContent = [`EAN ${ean}`, p?.gramaje_g ? p.gramaje_g + ' g' : '', p?.marca, p?.segmento, p?.tamano, p?.sugerido ? 'Sugerido ' + pesos(p.sugerido) : ''].filter(Boolean).join(' · ');
+  $('#dlgTabla').innerHTML = '<div class="empty">Cargando historial…</div>'; $('#dlgZonas').innerHTML = '';
   dlg.showModal();
-  const h = await historial(ean);
+  let h = await DB.historial(ean, S.zona, S.fecha);
+  // por cadena: su serie de la zona si existe; si no, la web
+  const conZona = new Set(h.filter(x => x.zona_id === S.zona).map(x => x.retailer_id));
+  h = h.filter(x => x.zona_id === S.zona || !conZona.has(x.retailer_id));
   const fechas = [...new Set(h.map(x => x.fecha))].sort();
   const datasets = RET.filter(r => h.some(x => x.retailer_id === r.id)).map(r => {
     const m = Object.fromEntries(h.filter(x => x.retailer_id === r.id).map(x => [x.fecha, x.precio]));
     return { label: r.nombre, data: fechas.map(f => m[f] ?? null), borderColor: css(r.c), backgroundColor: css(r.c), borderWidth: 2, pointRadius: fechas.length < 15 ? 3 : 0, pointHoverRadius: 5, stepped: 'before', spanGaps: false };
   });
+  if (p?.sugerido) datasets.push({ label: 'Sugerido PepsiCo', data: fechas.map(() => p.sugerido), borderColor: css('--ink-2'), backgroundColor: css('--ink-2'), borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 0 });
   charts.hist?.destroy();
   const opt = baseOpciones();
   opt.scales.y.ticks.callback = (v) => pesos(v);
   opt.plugins.tooltip.callbacks = { label: (c) => ` ${c.dataset.label}: ${pesos(c.parsed.y)}` };
-  charts.hist = new Chart($('#chHist'), { type: 'line', data: { labels: fechas.map(f => new Date(f + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })), datasets }, options: opt });
-  const hoy = S.hoy.filter(f => f.ean === ean).sort((a, b) => (a.precio ?? 1e12) - (b.precio ?? 1e12));
-  $('#dlgTabla').innerHTML = `<table class="matriz"><thead><tr><th>Cadena</th><th>Hoy</th><th>Anterior</th><th>Var.</th><th>Por kg</th><th style="text-align:left">Promo</th><th></th></tr></thead><tbody>${hoy.map(f => `<tr style="cursor:default"><td>${esc(f.retailer)}</td><td class="p">${f.disponible ? pesos(f.precio) : '<span class="na">sin stock</span>'}</td><td class="p">${pesos(f.precio_anterior)}</td><td class="p"><span class="${f.var_pct > 0 ? 'up' : f.var_pct < 0 ? 'down' : ''}">${pct(f.var_pct)}</span></td><td class="p">${pesos(f.precio_kg)}</td><td>${esc(f.promo_texto || '')}</td><td>${f.url && f.url !== '#' ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">ver ↗</a>` : ''}</td></tr>`).join('')}</tbody></table>`;
+  charts.hist = new Chart($('#chHist'), { type: 'line', data: { labels: fechas.map(fCorta), datasets }, options: opt });
+  $('#dlgTabla').innerHTML = `<table class="t"><thead><tr><th class="l">Cadena</th><th>Precio</th><th>Anterior</th><th>Var.</th><th>Sugerido</th><th>Vs. sugerido</th><th>Por kg</th><th class="l">Promo</th><th></th></tr></thead><tbody>${hoy.map(f => `<tr><td class="l">${esc(f.retailer)}${f.alcance === 'web' && S.zona !== 'web' ? '<span class="tag web">web</span>' : ''}</td><td>${f.disponible ? pesos(f.precio) : '<span class="na">sin stock</span>'}</td><td>${pesos(f.precio_anterior)}</td><td><span class="${f.var_pct > 0 ? 'up' : f.var_pct < 0 ? 'down' : ''}">${pct(f.var_pct)}</span></td><td>${pesos(f.sugerido)}</td><td>${celdaDiv(f.dif_sugerido_pct)}</td><td>${pesos(f.precio_kg)}</td><td class="l">${esc(f.promo_texto || '')}</td><td>${f.url && f.url !== '#' ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">ver ↗</a>` : ''}</td></tr>`).join('')}</tbody></table>`;
+  // precio por zona
+  const pz = (await datosPorZona()).filter(f => f.ean === ean);
+  const zonas = S.zonas.filter(z => pz.some(f => f.zona_id === z.id));
+  if (zonas.length > 1) {
+    const rets = RET.filter(r => pz.some(f => f.retailer_id === r.id && f.zona_id !== 'web'));
+    const m = {}; for (const f of pz) m[f.retailer_id + '|' + f.zona_id] = f.precio;
+    if (rets.length) $('#dlgZonas').innerHTML = `<div class="hint" style="margin:6px 0">Precio por zona el ${fCorta(S.fecha)} (cadenas que cambian el precio según la ubicación)</div><table class="t"><thead><tr><th class="l">Cadena</th>${zonas.map(z => `<th>${esc(z.nombre)}</th>`).join('')}</tr></thead><tbody>${rets.map(r => {
+      const vals = zonas.map(z => m[r.id + '|' + z.id]).filter(Boolean), mn = Math.min(...vals), mx = Math.max(...vals);
+      return `<tr><td class="l">${r.nombre}</td>${zonas.map(z => { const v = m[r.id + '|' + z.id]; return `<td class="${v && mn !== mx ? (v === mn ? 'low' : v === mx ? 'high' : '') : ''}">${v ? pesos(v) : '<span class="na">—</span>'}</td>`; }).join('')}</tr>`; }).join('')}</tbody></table>`;
+  }
 }
 
-// ---------------- Excel ----------------
-async function excel() {
-  const b = $('#btnExcel'); b.disabled = true; b.textContent = 'Armando Excel…';
+// =====================================================================
+//  Carga de precio sugerido (Excel / CSV)
+// =====================================================================
+const dlgSug = $('#dlgSug');
+const U = { wb: null, filas: [], cols: [], catalogo: null, lote: '', res: [] };
+const soloDigitos = (v) => { if (v == null || v === '') return ''; if (typeof v === 'number') return String(Math.round(v)); return String(v).replace(/\D/g, ''); };
+function aPrecio(v) {
+  if (typeof v === 'number') return v > 0 ? v : null;
+  let s = String(v ?? '').replace(/[^\d.,-]/g, ''); if (!s) return null;
+  if (s.includes(',') && s.includes('.')) s = s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  else if (s.includes(',')) s = /,\d{1,2}$/.test(s) ? s.replace(',', '.') : s.replace(/,/g, '');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  const n = parseFloat(s); return n > 0 ? n : null;
+}
+$('#btnSug').onclick = async () => {
+  $('#sugPaso2').hidden = true; $('#sugFile').value = ''; $('#mVig').value = hoyAR();
+  dlgSug.showModal();
+  if (!U.catalogo) { try { U.catalogo = await DB.catalogo(); } catch (e) { U.catalogo = []; } if (U.wb && !$('#sugPaso2').hidden) resolver(); }
+};
+$('#sugDrop').onclick = () => $('#sugFile').click();
+$('#sugDrop').ondragover = (e) => { e.preventDefault(); $('#sugDrop').classList.add('over'); };
+$('#sugDrop').ondragleave = () => $('#sugDrop').classList.remove('over');
+$('#sugDrop').ondrop = (e) => { e.preventDefault(); $('#sugDrop').classList.remove('over'); if (e.dataTransfer.files[0]) leerArchivo(e.dataTransfer.files[0]); };
+$('#sugFile').onchange = (e) => { if (e.target.files[0]) leerArchivo(e.target.files[0]); };
+async function leerArchivo(file) {
   try {
-    const filas = filtradas();
-    const wb = XLSX.utils.book_new();
-    const hoja = (datos, nombre, anchos) => { const ws = XLSX.utils.json_to_sheet(datos); if (anchos) ws['!cols'] = anchos.map(w => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, nombre); };
-
-    hoja(filas.map(f => ({ Fecha: f.fecha, Cadena: f.retailer, Marca: f.marca, Producto: f.producto, Segmento: f.segmento, EAN: f.ean, 'Gramaje (g)': f.gramaje_g,
-      Precio: f.precio, 'Precio anterior': f.precio_anterior, 'Var. vs anterior (%)': f.var_pct, 'Precio lista': f.precio_lista, 'Precio por kg': f.precio_kg,
-      'En promo': f.en_promo ? 'Sí' : 'No', Promo: f.promo_texto || '', Disponible: f.disponible ? 'Sí' : 'No', Link: f.url })), 'Precios hoy', [11, 12, 10, 38, 16, 15, 10, 10, 12, 12, 10, 12, 8, 18, 9, 40]);
-
-    const rets = RET.filter(r => S.filtroRet.has(r.id) && S.hoy.some(f => f.retailer_id === r.id));
-    hoja(agrupar(filas).map(p => ({ Marca: p.marca, Producto: p.producto, EAN: p.ean, 'Gramaje (g)': p.gramaje_g,
-      ...Object.fromEntries(rets.map(r => [r.nombre, p.celdas[r.id]?.precio ?? null])),
-      'Mínimo': p.min, 'Máximo': p.max, 'Brecha (%)': p.brecha != null ? +p.brecha.toFixed(1) : null })), 'Matriz', [10, 38, 15, 10, ...rets.map(() => 11), 10, 10, 10]);
-
-    hoja(S.alertas.filter(a => S.filtroRet.has(a.retailer_id)).map(a => ({ Fecha: a.fecha, Tipo: NOMBRE_TIPO[a.tipo] || a.tipo, Cadena: a.retailer, Marca: a.marca, Producto: a.nombre,
-      'Precio anterior': a.precio_anterior, 'Precio nuevo': a.precio_nuevo, 'Variación (%)': a.variacion_pct, Detalle: a.detalle || '' })), 'Cambios 14 días', [11, 16, 12, 10, 38, 12, 12, 12, 24]);
-
-    hoja(S.indice.filter(x => S.filtroRet.has(x.retailer_id)).map(x => ({ Fecha: x.fecha, Cadena: x.retailer, 'Índice (100 = mediana)': x.indice, 'SKUs comparables': x.skus_comparables })), 'Índice por cadena', [11, 12, 20, 16]);
-
-    XLSX.writeFile(wb, `precios_snacks_${S.fecha || hoyAR()}.xlsx`);
-  } catch (e) { alert('No se pudo generar el Excel: ' + e.message); }
-  b.disabled = false; b.textContent = '⬇ Descargar Excel';
+    U.wb = XLSX.read(await file.arrayBuffer(), { type: 'array' }); U.lote = file.name;
+    $('#mHoja').innerHTML = U.wb.SheetNames.map(n => `<option>${esc(n)}</option>`).join('');
+    leerHoja(); $('#sugPaso2').hidden = false;
+  } catch (e) { $('#sugPaso2').hidden = false; $('#sugEstado').innerHTML = `<b>No pude leer el archivo.</b> ${esc(e.message)}`; }
 }
+function leerHoja() {
+  const m = XLSX.utils.sheet_to_json(U.wb.Sheets[$('#mHoja').value], { header: 1, defval: '', raw: true });
+  // fila de encabezados: la primera (entre las 15 de arriba) con 2+ celdas de texto y alguna que hable de precio, EAN o descripción
+  let h = m.slice(0, 15).findIndex(r => r.filter(c => typeof c === 'string' && c.trim()).length >= 2 && r.some(c => /precio|pvp|sugerid|ean|c[oó]digo|descrip|producto|art[ií]culo/i.test(String(c))));
+  if (h < 0) h = 0;
+  U.cols = (m[h] || []).map((c, i) => String(c || '').trim() || `Columna ${i + 1}`);
+  U.filas = m.slice(h + 1).filter(r => r.some(c => c !== ''));
+  const adivinar = (re, no) => U.cols.findIndex(c => re.test(sinTildes(c)) && !(no && no.test(sinTildes(c))));
+  const opciones = (sel, idx, vacio) => { $(sel).innerHTML = (vacio ? '<option value="-1">(no hay)</option>' : '') + U.cols.map((c, i) => `<option value="${i}">${esc(c)}</option>`).join(''); $(sel).value = idx >= 0 ? idx : (vacio ? -1 : 0); };
+  let iPrecio = adivinar(/sugerid|pvp|psp|precio.*publico|publico/); if (iPrecio < 0) iPrecio = adivinar(/precio/, /lista|costo|neto|sin iva/); if (iPrecio < 0) iPrecio = adivinar(/precio/);
+  opciones('#mEan', adivinar(/ean|barra|gtin|dun/), true);
+  opciones('#mDesc', adivinar(/descrip|producto|articulo|nombre|sku/, /cod|ean/), true);
+  opciones('#mPrecio', iPrecio, false);
+  opciones('#mZona', adivinar(/zona|region|provincia|plaza/), true);
+  resolver();
+}
+function resolver() {
+  const iE = +$('#mEan').value, iD = +$('#mDesc').value, iP = +$('#mPrecio').value, iZ = +$('#mZona').value;
+  const cat = new Map((U.catalogo || []).map(p => [String(p.ean), p]));
+  const zonaDe = (v) => { const t = sinTildes(v).trim(); if (!t) return null; return S.zonas.find(z => z.id !== 'web' && (sinTildes(z.nombre).includes(t) || t.includes(sinTildes(z.nombre).split(' (')[0]) || z.id === t.replace(/\s+/g, '_')))?.id ?? null; };
+  const previas = new Map(U.res.filter(r => r.ia).map(r => [r.descripcion, r.ean]));
+  U.res = U.filas.map((r, i) => {
+    const ean = iE >= 0 ? soloDigitos(r[iE]) : '', descripcion = iD >= 0 ? String(r[iD] ?? '').trim() : '', precio = aPrecio(r[iP]);
+    const o = { i, ean, descripcion, precio, zona_id: iZ >= 0 ? zonaDe(r[iZ]) : null, estado: 'sin_precio', ia: false };
+    if (!precio) return o;
+    if (/^\d{8,14}$/.test(ean)) { o.estado = cat.size && !cat.has(ean) ? 'fuera' : 'ok'; o.producto = cat.get(ean)?.producto; }
+    else if (previas.get(descripcion)) { o.ean = previas.get(descripcion); o.estado = 'ok'; o.ia = true; o.producto = cat.get(o.ean)?.producto; }
+    else o.estado = descripcion ? 'sin_ean' : 'sin_precio';
+    return o;
+  }).filter(o => o.precio || o.descripcion || o.ean);
+  pintarCarga();
+}
+function pintarCarga() {
+  const c = (e) => U.res.filter(r => r.estado === e).length;
+  const ok = c('ok'), fuera = c('fuera'), sinEan = c('sin_ean'), sinPrecio = c('sin_precio');
+  $('#sugEstado').innerHTML = `<span class="pill"><b>${ok + fuera}</b> listas para guardar</span>`
+    + (fuera ? `<span class="pill" title="El EAN es válido pero todavía no aparece en ninguna cadena relevada. Se guarda igual.">${fuera} con EAN que aún no se relevó</span>` : '')
+    + (sinEan ? `<span class="pill">${sinEan} sin EAN</span>` : '') + (sinPrecio ? `<span class="pill">${sinPrecio} sin precio (se ignoran)</span>` : '');
+  const ET = { ok: '✓', fuera: '✓ (no relevado)', sin_ean: 'Falta EAN', sin_precio: 'Sin precio' };
+  $('#sugPrev').innerHTML = `<thead><tr><th class="l">Estado</th><th class="l">EAN</th><th class="l">Descripción en el archivo</th><th class="l">Producto del monitor</th><th>Sugerido</th><th class="l">Zona</th></tr></thead><tbody>${
+    [...U.res].sort((a, b) => (a.estado === 'sin_ean' ? 0 : 1) - (b.estado === 'sin_ean' ? 0 : 1)).slice(0, 200).map(r => `<tr><td class="l">${ET[r.estado]}${r.ia ? ' ✨' : ''}</td><td class="l">${esc(r.ean)}</td><td class="l">${esc(r.descripcion)}</td><td class="l">${esc(r.producto || '')}</td><td>${pesos(r.precio)}</td><td class="l">${esc(S.zonas.find(z => z.id === r.zona_id)?.nombre || 'Todas')}</td></tr>`).join('')}</tbody>`;
+  $('#btnIA').hidden = !(sinEan && WEBHOOK_SUGERIDOS && !DEMO);
+  $('#btnGuardarSug').disabled = !(ok + fuera);
+  $('#sugNota').innerHTML = WEBHOOK_SUGERIDOS && !DEMO
+    ? 'Se guarda en la base (workflow 6) y lo ven todos los que abran el dashboard.' + (sinEan ? ' Las filas sin EAN no se guardan, salvo que las empareje la IA.' : '')
+    : 'El workflow 6 (Lector de precio sugerido) no está conectado: el sugerido se guarda <b>sólo en este navegador</b>. Para guardarlo en la base y emparejar con IA las filas sin EAN, completá WEBHOOK_SUGERIDOS_LOCAL y CLAVE_SUGERIDOS_LOCAL en config.local.js.';
+}
+for (const s of ['#mEan', '#mDesc', '#mPrecio', '#mZona']) $(s).addEventListener('input', resolver);
+$('#mHoja').addEventListener('input', leerHoja);
+async function webhookSug(cuerpo) {
+  const r = await fetch(WEBHOOK_SUGERIDOS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clave: CLAVE_SUGERIDOS, ...cuerpo }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error || `El workflow respondió ${r.status}. Revisá que esté activo.`);
+  return j;
+}
+$('#btnIA').onclick = async () => {
+  const b = $('#btnIA'); b.disabled = true; b.textContent = 'Emparejando…';
+  try {
+    const pend = U.res.filter(r => r.estado === 'sin_ean');
+    const unicas = [...new Set(pend.map(r => r.descripcion))].slice(0, 400);
+    const j = await webhookSug({ accion: 'emparejar', filas: unicas.map((descripcion, i) => ({ i, descripcion })) });
+    const cat = new Map((U.catalogo || []).map(p => [String(p.ean), p]));
+    const mapa = new Map((j.filas || []).filter(f => f.ean).map(f => [unicas[f.i], f.ean]));
+    for (const r of pend) { const e = mapa.get(r.descripcion); if (e) { r.ean = e; r.estado = 'ok'; r.ia = true; r.producto = cat.get(e)?.producto; } }
+    pintarCarga();
+    $('#sugNota').innerHTML = `La IA emparejó ${mapa.size} de ${unicas.length} descripciones (marcadas con ✨). <b>Revisalas antes de guardar</b>: puede equivocarse con sabores o gramajes parecidos.`;
+  } catch (e) { $('#sugNota').innerHTML = `<b>No se pudo emparejar.</b> ${esc(e.message)}`; }
+  b.disabled = false; b.textContent = '✨ Emparejar con IA las filas sin EAN';
+};
+$('#btnGuardarSug').onclick = async () => {
+  const b = $('#btnGuardarSug'), vig = $('#mVig').value || hoyAR();
+  const filas = U.res.filter(r => r.estado === 'ok' || r.estado === 'fuera').map(r => ({ ean: r.ean, precio: r.precio, zona_id: r.zona_id, descripcion: r.descripcion }));
+  b.disabled = true; b.textContent = 'Guardando…';
+  try {
+    if (WEBHOOK_SUGERIDOS && !DEMO) { const j = await webhookSug({ accion: 'guardar', vigencia: vig, lote: U.lote, filas }); $('#sugNota').innerHTML = `<b>Listo:</b> ${j.guardados} precios sugeridos guardados, vigentes desde el ${fCorta(vig)}.`; }
+    else {
+      const precios = {}; for (const f of filas) precios[f.ean + '|' + (f.zona_id || '')] = f.precio;
+      try { localStorage.setItem('sugeridos_local', JSON.stringify({ vigencia: vig, lote: U.lote, precios })); } catch (e) {}
+      $('#sugNota').innerHTML = `<b>Listo:</b> ${filas.length} precios sugeridos guardados en este navegador.`;
+    }
+    await cargarDia();
+  } catch (e) { $('#sugNota').innerHTML = `<b>No se pudo guardar.</b> ${esc(e.message)}`; }
+  b.disabled = false; b.textContent = 'Guardar';
+};
 
-// ---------------- chat ----------------
+// =====================================================================
+//  Excel
+// =====================================================================
+async function excel() {
+  const b = $('#btnExcel'); b.disabled = true; b.textContent = 'Armando…';
+  try {
+    const filas = filtradas(), todas = filtradas(true);
+    const wb = XLSX.utils.book_new();
+    const hoja = (datos, nombre, anchos) => { if (!datos.length) return; const ws = XLSX.utils.json_to_sheet(datos); if (anchos) ws['!cols'] = anchos.map(w => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, nombre); };
+    const zona = S.zonas.find(z => z.id === S.zona)?.nombre || S.zona;
+    const fila = (f) => ({ Fecha: f.fecha, Zona: zona, 'Alcance del precio': f.alcance === 'web' && S.zona !== 'web' ? 'Web general' : 'Zona', Cadena: f.retailer, Marca: f.marca, Tipo: TIPO_MARCA[f.tipo_marca] || '', Producto: f.producto, Segmento: f.segmento, 'Tamaño': f.tamano, EAN: f.ean, 'Gramaje (g)': f.gramaje_g,
+      Precio: f.precio, 'Sugerido PepsiCo': f.sugerido, 'Dif. vs sugerido (%)': f.dif_sugerido_pct, 'Precio anterior': f.precio_anterior, 'Var. vs anterior (%)': f.var_pct, 'Precio lista': f.precio_lista, 'Precio por kg': f.precio_kg,
+      'En promo': f.en_promo ? 'Sí' : 'No', Promo: f.promo_texto || '', Disponible: f.disponible ? 'Sí' : 'No', Link: f.url });
+    hoja(filas.map(fila), 'Precios', [11, 16, 12, 12, 12, 12, 36, 14, 12, 15, 9, 10, 11, 11, 11, 11, 10, 11, 8, 18, 9, 40]);
+
+    const rets = retsVisibles();
+    hoja(agrupar(filas).map(p => ({ Marca: p.marca, Producto: p.producto, Segmento: p.segmento, 'Tamaño': p.tamano, EAN: p.ean, 'Gramaje (g)': p.gramaje_g, 'Sugerido PepsiCo': p.sug,
+      ...Object.fromEntries(rets.map(r => [r.nombre, p.celdas[r.id]?.precio ?? null])),
+      'Mínimo': p.min, 'Máximo': p.max, 'Brecha (%)': p.brecha != null ? +p.brecha.toFixed(1) : null })), 'Matriz', [12, 36, 14, 12, 15, 9, 11, ...rets.map(() => 11), 10, 10, 10]);
+
+    const pe = todas.filter(f => f.tipo_marca === 'pepsico' && f.dif_sugerido_pct != null);
+    const segs = {}; for (const f of pe) (segs[(f.segmento || 'Sin segmento') + '|' + f.retailer] ??= []).push(f.dif_sugerido_pct);
+    hoja(Object.entries(segs).sort().map(([k, v]) => ({ Segmento: k.split('|')[0], Cadena: k.split('|')[1], 'Dif. promedio vs sugerido (%)': +prom(v).toFixed(1), 'Precios comparados': v.length, 'Por encima': v.filter(x => x > 1).length, 'Por debajo': v.filter(x => x < -1).length })), 'Sugerido por segmento', [18, 12, 22, 16, 11, 11]);
+
+    hoja(todas.filter(f => f.disponible && f.precio_kg && (f.tamano === 'Medium bag' || f.tamano === 'Large bag')).map(f => ({ Segmento: f.segmento, 'Tamaño': f.tamano, Tipo: TIPO_MARCA[f.tipo_marca] || '', Marca: f.marca, Producto: f.producto, Cadena: f.retailer, 'Gramaje (g)': f.gramaje_g, Precio: f.precio, 'Precio por kg': f.precio_kg }))
+      .sort((a, b) => String(a.Segmento).localeCompare(String(b.Segmento)) || String(a['Tamaño']).localeCompare(String(b['Tamaño'])) || a.Tipo.localeCompare(b.Tipo)), 'Competencia M y L', [16, 12, 13, 16, 36, 12, 9, 10, 11]);
+
+    hoja(S.alertas.filter(a => S.filtroRet.has(a.retailer_id) && enZona(a)).map(a => ({ Fecha: a.fecha, Tipo: NOMBRE_TIPO[a.tipo] || a.tipo, Cadena: a.retailer, Zona: a.zona || '', Marca: a.marca, Producto: a.nombre,
+      'Precio anterior': a.precio_anterior, 'Precio nuevo': a.precio_nuevo, 'Variación (%)': a.variacion_pct, Detalle: a.detalle || '' })), 'Cambios 14 días', [11, 16, 12, 16, 12, 36, 12, 12, 12, 24]);
+
+    hoja(S.indice.filter(x => S.filtroRet.has(x.retailer_id)).map(x => ({ Fecha: x.fecha, Zona: zona, Cadena: x.retailer, 'Índice (100 = mediana)': x.indice, 'SKUs comparables': x.skus_comparables })), 'Índice por cadena', [11, 16, 12, 20, 16]);
+
+    XLSX.writeFile(wb, `precios_snacks_${S.zona}_${S.fecha || hoyAR()}.xlsx`);
+  } catch (e) { $('#banner').hidden = false; $('#banner').innerHTML = `<b>No se pudo generar el Excel.</b> ${esc(e.message)}`; }
+  b.disabled = false; b.textContent = '⬇ Excel';
+}
+$('#btnExcel').onclick = excel;
+
+// =====================================================================
+//  Chat
+// =====================================================================
 const chatLog = [];
 function toggleChat() { $('#chat').classList.toggle('open'); if ($('#chat').classList.contains('open')) $('#chatIn').focus(); }
 function burbuja(texto, quien) { const d = document.createElement('div'); d.className = 'msg ' + quien; d.textContent = texto; $('#chatB').appendChild(d); $('#chatB').scrollTop = 1e9; return d; }
@@ -513,10 +1093,11 @@ async function preguntar(q) {
   if (!q) return;
   burbuja(q, 'u');
   const espera = burbuja('Consultando la base…', 'a');
-  if (!WEBHOOK_ANALISTA) { espera.textContent = 'El chat todavía no está conectado: falta pegar la URL del webhook del workflow 4 en la configuración del dashboard (WEBHOOK_ANALISTA).'; return; }
+  if (!WEBHOOK_ANALISTA) { espera.textContent = 'El chat todavía no está conectado: falta la URL del webhook del workflow 4 en config.local.js (WEBHOOK_ANALISTA_LOCAL).'; return; }
   try {
+    const contexto = `(En el dashboard está elegida la zona "${S.zona}" y el día ${S.fecha}.)`;
     const r = await fetch(WEBHOOK_ANALISTA, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pregunta: q, historial: chatLog.slice(-6).map(m => `${m.r}: ${m.t}`).join('\n') }) });
+      body: JSON.stringify({ pregunta: `${q}\n${contexto}`, historial: chatLog.slice(-6).map(m => `${m.r}: ${m.t}`).join('\n') }) });
     const j = await r.json().catch(() => ({}));
     espera.textContent = j.respuesta || j.output || 'No obtuve respuesta (revisá que el workflow 4 esté activo).';
     chatLog.push({ r: 'Usuario', t: q }, { r: 'Analista', t: espera.textContent });
@@ -526,7 +1107,9 @@ $('#chatFab').onclick = toggleChat;
 $('#chatF').onsubmit = (e) => { e.preventDefault(); const q = $('#chatIn').value.trim(); $('#chatIn').value = ''; preguntar(q); };
 $('#chatB').addEventListener('click', (e) => { if (e.target.classList.contains('sug')) preguntar(e.target.textContent); });
 
-// ---------------- tema ----------------
+// =====================================================================
+//  Tema e inicio
+// =====================================================================
 $('#btnTema').onclick = () => {
   const actual = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   document.documentElement.dataset.theme = actual === 'dark' ? 'light' : 'dark';
@@ -535,16 +1118,28 @@ $('#btnTema').onclick = () => {
 };
 try { const t = localStorage.getItem('tema'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 
-// ---------------- inicio ----------------
-function pintar() { const f = filtradas(); pintarKpis(f); pintarIndice(); pintarAlertas(); pintarMatriz(f); }
-$('#btnExcel').onclick = excel;
+function pintar() {
+  const f = filtradas();
+  $('#filters').style.display = ''; $('#chips').style.display = '';
+  if (S.vista === 'resumen') { pintarKpis(f); pintarIndice(); pintarAlertas(); $('#resSug').innerHTML = tablaSegmentos(filtradas(true).filter(x => x.tipo_marca === 'pepsico'), false); }
+  else if (S.vista === 'matriz') pintarMatriz(f);
+  else if (S.vista === 'sugerido') pintarSugerido();
+  else if (S.vista === 'competencia') pintarCompetencia();
+  else if (S.vista === 'zonas') pintarZonas();
+}
 (async () => {
   try {
-    await cargar();
-    if (DEMO) { $('#banner').hidden = false; $('#banner').innerHTML = '<b>Datos de demostración.</b> Completá SUPABASE_URL y SUPABASE_ANON_KEY al principio de este archivo para ver los precios reales.'; }
-    else if (!S.hoy.length) { $('#banner').hidden = false; $('#banner').innerHTML = '<b>Todavía no hay precios cargados.</b> Ejecutá el workflow "1 · Recolector" en n8n y recargá esta página.'; }
-    $('#sub').textContent = S.fecha ? `Última captura: ${fLarga(S.fecha)} · Carrefour, Jumbo, Disco, Vea, Día, ChangoMás y Coto` : '';
-    armarFiltros(); pintar();
+    const { zonas, fechas } = await DB.base();
+    S.fechas = fechas;
+    const conDatos = new Set(fechas.map(f => f.zona_id));
+    S.zonas = zonas.filter(z => z.id === 'web' || conDatos.has(z.id) || !fechas.length);
+    $('#fZona').innerHTML = S.zonas.map(z => `<option value="${esc(z.id)}">${esc(z.nombre)}</option>`).join('');
+    let guardada = null; try { guardada = localStorage.getItem('zona'); } catch (e) {}
+    if (guardada && S.zonas.some(z => z.id === guardada)) S.zona = guardada;
+    $('#fZona').value = S.zona;
+    $('#fZona').addEventListener('input', () => { try { localStorage.setItem('zona', $('#fZona').value); } catch (e) {} });
+    S.fecha = fechasDeZona().at(-1) || null;
+    await cargarDia();
   } catch (e) {
     $('#banner').hidden = false; $('#banner').innerHTML = `<b>No se pudieron cargar los datos.</b> ${esc(e.message)}`;
   }
